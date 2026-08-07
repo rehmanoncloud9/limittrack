@@ -1,0 +1,74 @@
+{
+  "name": "limittrack",
+  "version": "1.0.0",
+  "description": "Track reset times for rate-limited coding tool accounts (Antigravity, Codex, Claude Code, and more) across multiple emails, with live countdowns and native desktop notifications.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "author": "YOUR-NAME",
+  "license": "MIT",
+  "homepage": "https://github.com/YOUR-USERNAME/limittrack#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR-USERNAME/limittrack.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR-USERNAME/limittrack/issues"
+  },
+  "keywords": [
+    "electron",
+    "antigravity",
+    "codex",
+    "claude-code",
+    "rate-limit",
+    "desktop-app",
+    "productivity"
+  ],
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.yourname.limittrack",
+    "productName": "LimitTrack",
+    "files": [
+      "**/*",
+      "!**/*.md"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "publish": {
+      "provider": "github"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development"
+    }
+  }
+}
+
