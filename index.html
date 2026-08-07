@@ -17,6 +17,15 @@
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       }
+      /* Visible keyboard focus indicator for accessibility */
+      button:focus-visible,
+      a:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      [tabindex]:focus-visible {
+        outline: 2px solid #3b82f6;
+        outline-offset: 2px;
+      }
     </style>
   </head>
   <body>

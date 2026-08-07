@@ -103,3 +103,11 @@ ipcMain.handle("storage:set", (event, key, value) => {
   writeStore(data);
   return true;
 });
+
+// Live tray tooltip, updated once a second by the renderer's tick loop so
+// people can see "what's next" without opening the window.
+ipcMain.on("tray:update", (event, text) => {
+  if (tray && typeof text === "string") {
+    tray.setToolTip(text.slice(0, 250));
+  }
+});
