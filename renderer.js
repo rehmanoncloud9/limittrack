@@ -67,6 +67,33 @@ function toLocalInputValue(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function formatRelativePreview(localValue) {
+  if (!localValue) return "";
+  const target = new Date(localValue);
+  if (isNaN(target.getTime())) return "";
+  const diffMs = target.getTime() - Date.now();
+  const abs = Math.abs(diffMs);
+  const totalMin = Math.floor(abs / 60000);
+  const d = Math.floor(totalMin / 1440);
+  const h = Math.floor((totalMin % 1440) / 60);
+  const m = totalMin % 60;
+  const parts = [];
+  if (d > 0) parts.push(`${d}d`);
+  if (h > 0) parts.push(`${h}h`);
+  if (d === 0 && m > 0) parts.push(`${m}m`);
+  const rel = parts.length ? parts.join(" ") : "now";
+  return diffMs >= 0 ? `in ${rel}` : `${rel} ago`;
+}
+
+const RESET_PRESETS = [
+  { label: "+1h", hours: 1 },
+  { label: "+6h", hours: 6 },
+  { label: "+1d", hours: 24 },
+  { label: "+3d", hours: 72 },
+  { label: "+7d", hours: 168 },
+  { label: "+30d", hours: 720 },
+];
+
 function statusStyles(status) {
   if (status === "open") return { dot: "bg-green-500", text: "text-green-600", label: "Open now" };
   if (status === "soon") return { dot: "bg-orange-400", text: "text-orange-500", label: "Opens soon" };
@@ -158,6 +185,15 @@ function saveCustomReset(id) {
     acc.resetAt = new Date(editingResetValue).toISOString();
     saveState();
   }
+  editingResetId = null;
+  render();
+}
+
+function applyPreset(id, hours) {
+  const acc = state.accounts.find((a) => a.id === id);
+  if (!acc) return;
+  acc.resetAt = new Date(Date.now() + hours * 3600000).toISOString();
+  saveState();
   editingResetId = null;
   render();
 }
@@ -274,6 +310,9 @@ function attachEvents() {
       case "save-reset":
         saveCustomReset(id);
         break;
+      case "apply-preset":
+        applyPreset(id, parseInt(btn.dataset.hours, 10));
+        break;
       case "cancel-reset-edit":
         editingResetId = null;
         render();
@@ -320,6 +359,8 @@ function attachEvents() {
         break;
       case "editing-reset-value":
         editingResetValue = e.target.value;
+        const previewEl = document.getElementById("reset-preview");
+        if (previewEl) previewEl.textContent = formatRelativePreview(editingResetValue);
         break;
     }
   });
@@ -368,11 +409,20 @@ function render() {
                 const styles = statusStyles(status);
                 const resetEditPanel =
                   editingResetId === acc.id
-                    ? `<div class="border-t border-slate-200/60 bg-slate-50/60 px-5 py-3 flex flex-wrap items-center gap-2">
-                         <label class="text-xs text-slate-400">Resets at</label>
-                         <input type="datetime-local" data-field="editing-reset-value" value="${escapeHtml(editingResetValue)}" class="bg-white border border-slate-200 rounded-xl px-2 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
-                         <button data-action="save-reset" data-id="${acc.id}" class="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-xs font-medium px-3 py-1.5 shadow-sm shadow-blue-500/30 transition-all active:scale-95">${icon("check", 13)} Save</button>
-                         <button data-action="cancel-reset-edit" data-id="${acc.id}" class="inline-flex items-center gap-1 rounded-full bg-white border border-slate-200 hover:bg-slate-50 text-slate-500 text-xs px-3 py-1.5 transition-all active:scale-95">${icon("x", 13)} Cancel</button>
+                    ? `<div class="border-t border-slate-200/60 bg-slate-50/60 px-5 py-3">
+                         <div class="flex flex-wrap items-center gap-1.5 mb-2.5">
+                           ${RESET_PRESETS.map(
+                             (p) =>
+                               `<button data-action="apply-preset" data-id="${acc.id}" data-hours="${p.hours}" class="rounded-full bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-600 hover:text-blue-700 text-xs font-medium px-3 py-1 transition-all active:scale-95">${p.label}</button>`
+                           ).join("")}
+                         </div>
+                         <div class="flex flex-wrap items-center gap-2">
+                           <label class="text-xs text-slate-400">or pick exactly</label>
+                           <input type="datetime-local" data-field="editing-reset-value" value="${escapeHtml(editingResetValue)}" class="bg-white border border-slate-200 rounded-xl px-2 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
+                           <span id="reset-preview" class="text-xs font-medium text-blue-600">${formatRelativePreview(editingResetValue)}</span>
+                           <button data-action="save-reset" data-id="${acc.id}" class="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-xs font-medium px-3 py-1.5 shadow-sm shadow-blue-500/30 transition-all active:scale-95">${icon("check", 13)} Save</button>
+                           <button data-action="cancel-reset-edit" data-id="${acc.id}" class="inline-flex items-center gap-1 rounded-full bg-white border border-slate-200 hover:bg-slate-50 text-slate-500 text-xs px-3 py-1.5 transition-all active:scale-95">${icon("x", 13)} Cancel</button>
+                         </div>
                        </div>`
                     : "";
                 return `
