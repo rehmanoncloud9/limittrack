@@ -10,15 +10,15 @@
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux"
   },
-  "author": "YOUR-NAME",
+  "author": "Abdul Rehman",
   "license": "MIT",
-  "homepage": "https://github.com/YOUR-USERNAME/limittrack#readme",
+  "homepage": "https://github.com/rehmanoncloud9/limittrack#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR-USERNAME/limittrack.git"
+    "url": "https://github.com/rehmanoncloud9/limittrack.git"
   },
   "bugs": {
-    "url": "https://github.com/YOUR-USERNAME/limittrack/issues"
+    "url": "https://github.com/rehmanoncloud9/limittrack/issues"
   },
   "keywords": [
     "electron",

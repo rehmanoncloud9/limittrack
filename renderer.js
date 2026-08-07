@@ -16,6 +16,7 @@ let editingResetId = null;
 let editingResetValue = "";
 let showAddAccount = false;
 let showAddProvider = false;
+let showAbout = false;
 let newAccountDraft = { providerId: "", email: "", cycleDays: "" };
 let newProviderDraft = { name: "", cycleDays: "7" };
 const prevStatus = {};
@@ -116,6 +117,7 @@ const ICON_PATHS = {
   calendar: '<rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>',
   trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
   pencil: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
 };
 
 function icon(name, size = 14) {
@@ -332,6 +334,14 @@ function attachEvents() {
       case "save-cycle":
         saveEditCycle(id);
         break;
+      case "toggle-about":
+        showAbout = true;
+        render();
+        break;
+      case "close-about":
+        showAbout = false;
+        render();
+        break;
     }
   });
 
@@ -485,9 +495,12 @@ function render() {
               <p id="summary-text" class="text-sm text-slate-500 mt-0.5">${totalAccounts === 0 ? "No accounts yet" : `${openAccounts} of ${totalAccounts} open now`}</p>
             </div>
           </div>
-          <div class="rounded-2xl bg-white/60 backdrop-blur-md px-4 py-2.5 shadow-sm ring-1 ring-black/5 text-right">
-            <div id="clock-time" class="font-mono text-xl font-semibold tabular-nums text-slate-900">${now.toLocaleTimeString(undefined, { hour12: false })}</div>
-            <div id="clock-date" class="text-xs text-slate-500">${now.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</div>
+          <div class="flex items-center gap-2">
+            <div class="rounded-2xl bg-white/60 backdrop-blur-md px-4 py-2.5 shadow-sm ring-1 ring-black/5 text-right">
+              <div id="clock-time" class="font-mono text-xl font-semibold tabular-nums text-slate-900">${now.toLocaleTimeString(undefined, { hour12: false })}</div>
+              <div id="clock-date" class="text-xs text-slate-500">${now.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</div>
+            </div>
+            <button data-action="toggle-about" class="h-9 w-9 flex items-center justify-center rounded-full bg-white/60 backdrop-blur-md hover:bg-white text-slate-400 hover:text-blue-500 shadow-sm ring-1 ring-black/5 transition-colors" title="About LimitTrack">${icon("info", 16)}</button>
           </div>
         </div>
 
@@ -534,6 +547,35 @@ function render() {
           ${providerSections}
         </div>
       </div>
+
+      ${
+        showAbout
+          ? `<div data-action="close-about" style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,0.4);backdrop-filter:blur(4px);padding:1rem;">
+              <div style="max-width:24rem;width:100%;border-radius:24px;background:rgba(255,255,255,0.97);box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);padding:1.5rem;" onclick="event.stopPropagation()">
+                <div class="flex items-center gap-3 mb-4">
+                  <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/30">${icon("clock", 22)}</div>
+                  <div>
+                    <div class="text-lg font-semibold text-slate-900">LimitTrack</div>
+                    <div class="text-xs text-slate-400">Version 1.0.0</div>
+                  </div>
+                </div>
+                <p class="text-sm text-slate-600 mb-5">Tracks reset times for rate-limited AI coding tool accounts — Antigravity, Codex, Claude Code, and more — across multiple emails, so you never have to check manually again.</p>
+                <div class="border-t border-slate-200/70 pt-4">
+                  <div class="text-xs uppercase tracking-wide text-slate-400 mb-2">Built by</div>
+                  <div class="text-sm font-medium text-slate-900">Abdul Rehman</div>
+                  <div class="text-xs text-slate-500 mb-3">Founder &amp; CEO of Stayza · CS student at NUST</div>
+                  <div class="flex flex-wrap gap-2">
+                    <a href="https://iamabdulrehman.vercel.app" target="_blank" class="rounded-full bg-blue-50 hover:bg-blue-100 border border-blue-100 text-blue-700 text-xs font-medium px-3 py-1.5 transition-colors">Portfolio</a>
+                    <a href="https://github.com/rehmanoncloud9" target="_blank" class="rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium px-3 py-1.5 transition-colors">GitHub</a>
+                    <a href="https://www.linkedin.com/in/arehman-builds" target="_blank" class="rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium px-3 py-1.5 transition-colors">LinkedIn</a>
+                    <a href="mailto:relentlessrehman@gmail.com" class="rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium px-3 py-1.5 transition-colors">Email</a>
+                  </div>
+                </div>
+                <button data-action="close-about" class="mt-5 w-full rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-medium py-2 transition-all active:scale-95">Close</button>
+              </div>
+            </div>`
+          : ""
+      }
     </div>
   `;
 }

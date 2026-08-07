@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } = require("electron");
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
 
@@ -36,6 +36,13 @@ function createWindow() {
   });
 
   mainWindow.loadFile("index.html");
+
+  // Links (e.g. the About modal) should open in the user's real browser,
+  // not spawn a new Electron window.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: "deny" };
+  });
 
   // Closing the window minimizes to tray instead of quitting,
   // so LimitTrack keeps tracking (and can still notify you) in the background.

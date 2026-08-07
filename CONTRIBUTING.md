@@ -5,7 +5,7 @@ Thanks for considering a contribution — bug reports, feature ideas, and PRs ar
 ## Development setup
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/limittrack.git
+git clone https://github.com/rehmanoncloud9/limittrack.git
 cd limittrack
 npm install
 npm start

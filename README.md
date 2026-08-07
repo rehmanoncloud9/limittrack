@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/YOUR-USERNAME/limittrack/releases/latest"><img src="https://img.shields.io/github/v/release/YOUR-USERNAME/limittrack?label=download" alt="Latest release" /></a>
-  <a href="https://github.com/YOUR-USERNAME/limittrack/actions/workflows/release.yml"><img src="https://github.com/YOUR-USERNAME/limittrack/actions/workflows/release.yml/badge.svg" alt="Build status" /></a>
+  <a href="https://github.com/rehmanoncloud9/limittrack/releases/latest"><img src="https://img.shields.io/github/v/release/rehmanoncloud9/limittrack?label=download" alt="Latest release" /></a>
+  <a href="https://github.com/rehmanoncloud9/limittrack/actions/workflows/release.yml"><img src="https://github.com/rehmanoncloud9/limittrack/actions/workflows/release.yml/badge.svg" alt="Build status" /></a>
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platforms" />
 </p>
@@ -31,7 +31,7 @@ If you juggle multiple email accounts across AI coding tools — **Antigravity**
 
 ## 📥 Download
 
-Grab the latest build for your OS from the [**Releases page**](https://github.com/YOUR-USERNAME/limittrack/releases/latest):
+Grab the latest build for your OS from the [**Releases page**](https://github.com/rehmanoncloud9/limittrack/releases/latest):
 
 | Platform | File |
 |---|---|
@@ -44,7 +44,7 @@ Grab the latest build for your OS from the [**Releases page**](https://github.co
 ## 🛠️ Running from source
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/limittrack.git
+git clone https://github.com/rehmanoncloud9/limittrack.git
 cd limittrack
 npm install
 npm start
@@ -81,3 +81,11 @@ PRs and issues welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 ## 📄 License
 
 [MIT](LICENSE) — do whatever you want with it.
+
+## 👤 Author
+
+Built by **Abdul Rehman** — Founder & CEO of [Stayza](https://www.stayza.pk), Computer Science student at NUST.
+
+- Portfolio: [iamabdulrehman.vercel.app](https://iamabdulrehman.vercel.app)
+- GitHub: [@rehmanoncloud9](https://github.com/rehmanoncloud9)
+- LinkedIn: [arehman-builds](https://www.linkedin.com/in/arehman-builds)
