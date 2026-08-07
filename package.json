@@ -10,7 +10,10 @@
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux"
   },
-  "author": "Abdul Rehman",
+  "author": {
+    "name": "Abdul Rehman",
+    "email": "relentlessrehman@gmail.com"
+  },
   "license": "MIT",
   "homepage": "https://github.com/rehmanoncloud9/limittrack#readme",
   "repository": {
@@ -71,4 +74,3 @@
     }
   }
 }
-
