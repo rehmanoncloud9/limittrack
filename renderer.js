@@ -597,7 +597,7 @@ function attachEvents() {
         break;
       case "close-about":
         // Only close when the click landed directly on the backdrop (or the
-        // Close button itself) — not when it merely bubbled up from content
+        // Close button itself), not when it merely bubbled up from content
         // inside the modal, like the links in the "Built by" section.
         if (e.target === btn) closeAbout();
         break;
@@ -1013,7 +1013,7 @@ function render() {
                     <div class="text-xs text-slate-400">Version 1.0.0</div>
                   </div>
                 </div>
-                <p class="text-sm text-slate-600 mb-5">Tracks reset times for rate-limited AI coding tool accounts — Antigravity, Codex, Claude Code, and more — across multiple emails, so you never have to check manually again.</p>
+                <p class="text-sm text-slate-600 mb-5">Tracks reset times for rate-limited AI coding tool accounts (Antigravity, Codex, Claude Code, and more) across multiple emails, so you never have to check manually again.</p>
                 <div class="border-t border-slate-200/70 pt-4 pb-4">
                   <div class="text-xs uppercase tracking-wide text-slate-400 mb-2">Data</div>
                   <div class="flex flex-wrap gap-2">
@@ -1141,18 +1141,18 @@ function updateTrayTooltip(nowMs, statuses) {
   if (!window.limittrack || !window.limittrack.trayUpdate) return;
   let text;
   if (state.accounts.length === 0) {
-    text = "LimitTrack — no accounts yet";
+    text = "LimitTrack: no accounts yet";
   } else {
     const openCount = state.accounts.filter((a) => statuses[a.id] === "open").length;
     const waiting = state.accounts
       .filter((a) => statuses[a.id] !== "open")
       .sort((a, b) => effectiveTime(a, nowMs) - effectiveTime(b, nowMs));
     if (waiting.length === 0) {
-      text = `LimitTrack — all ${state.accounts.length} accounts open`;
+      text = `LimitTrack: all ${state.accounts.length} accounts open`;
     } else {
       const next = waiting[0];
       const provider = state.providers.find((p) => p.id === next.providerId);
-      text = `LimitTrack — ${openCount}/${state.accounts.length} open · ${provider ? provider.name : "next"} opens in ${formatCountdown(next, nowMs)}`;
+      text = `LimitTrack: ${openCount}/${state.accounts.length} open · ${provider ? provider.name : "next"} opens in ${formatCountdown(next, nowMs)}`;
     }
   }
   window.limittrack.trayUpdate(text);

@@ -17,31 +17,31 @@
 
 ---
 
-If you juggle multiple email accounts across AI coding tools — **Antigravity**, **Codex**, **Claude Code**, or anything else with a weekly/monthly usage cap — LimitTrack is a small native desktop app that tracks every account for you: when you last hit a limit, exactly when it resets, and which one is free to use right now.
+If you juggle multiple email accounts across AI coding tools like **Antigravity**, **Codex**, or **Claude Code** (or anything else with a weekly or monthly usage cap), LimitTrack is a small native desktop app that tracks every account for you. It remembers when you last hit a limit, works out exactly when it resets, and shows you which account is free to use right now.
 
-## ✨ Features
+## Features
 
-- 🖥️ **Multi-tool, multi-account** — track as many email accounts as you want, across as many tools as you want, each with its own reset cycle
-- ⏱️ **One-click logging** — hit a limit? Click "Log hit" and it stamps the time and calculates the reset automatically
-- 📅 **Manual override** — already know the exact reset time? Set it directly instead of computing it from "now"
-- 🔔 **Real desktop notifications** — get notified the moment an account opens back up, even in the background
-- 🎨 **Clean, native UI** — light glassmorphism design, live countdowns, color-coded status
-- 🗂️ **System tray** — closing the window just minimizes it; LimitTrack keeps tracking behind the scenes
-- 🔒 **100% local** — everything is saved to a local file on your machine, nothing is sent anywhere
+- **Multi-tool, multi-account:** track as many email accounts as you want, across as many tools as you want, each with its own reset cycle
+- **One-click logging:** hit a limit? Click "Log hit" and it stamps the time and calculates the reset automatically
+- **Manual override:** already know the exact reset time? Set it directly instead of computing it from "now"
+- **Real desktop notifications:** get notified the moment an account opens back up, even in the background
+- **Clean, native UI:** light glassmorphism design, live countdowns, color-coded status
+- **System tray:** closing the window just minimizes it; LimitTrack keeps tracking behind the scenes
+- **100% local:** everything is saved to a local file on your machine, nothing is sent anywhere
 
-## 📥 Download
+## Download
 
-Grab the latest build for your OS from the [**Releases page**](https://github.com/rehmanoncloud9/limittrack/releases/latest):
+Grab the latest build for your OS from the [Releases page](https://github.com/rehmanoncloud9/limittrack/releases/latest):
 
 | Platform | File |
 |---|---|
-| Windows | `LimitTrack-Setup-x.x.x.exe` (installer) **or** `LimitTrack-x.x.x-portable.exe` (no install needed) |
+| Windows | `LimitTrack-Setup-x.x.x.exe` (installer) or `LimitTrack-x.x.x-portable.exe` (no install needed) |
 | macOS | `LimitTrack-x.x.x.dmg` |
 | Linux | `LimitTrack-x.x.x.AppImage` or `.deb` |
 
-> **Windows SmartScreen warning:** the app isn't code-signed (that costs money), so Windows may flag it as unrecognized. Click **More info → Run anyway**. This is normal for small open-source apps.
+> **Windows SmartScreen warning:** the app isn't code-signed (that costs money), so Windows may flag it as unrecognized. Click "More info," then "Run anyway." This is normal for small open-source apps.
 
-## 🛠️ Running from source
+## Running from source
 
 ```bash
 git clone https://github.com/rehmanoncloud9/limittrack.git
@@ -50,9 +50,9 @@ npm install
 npm start
 ```
 
-No build step for development — it runs straight from source.
+There's no build step for development; it runs straight from source.
 
-## 📦 Building installers yourself
+## Building installers yourself
 
 ```bash
 npm run build        # build for your current OS
@@ -63,9 +63,9 @@ npm run build:linux  # Linux
 
 Installers land in `dist/`.
 
-## 🤖 Automated releases
+## Automated releases
 
-Push a version tag and GitHub Actions takes care of the rest — it builds installers for Windows, macOS, and Linux in parallel and publishes them straight to a GitHub Release:
+Push a version tag and GitHub Actions handles the rest. It builds installers for Windows, macOS, and Linux in parallel, then publishes them to a GitHub Release:
 
 ```bash
 git tag v1.0.0
@@ -74,17 +74,17 @@ git push --tags
 
 See [`.github/workflows/release.yml`](.github/workflows/release.yml).
 
-## 🤝 Contributing
+## Contributing
 
-PRs and issues welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+PRs and issues are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## 📄 License
+## License
 
-[MIT](LICENSE) — do whatever you want with it.
+[MIT](LICENSE). Do whatever you want with it.
 
-## 👤 Author
+## Author
 
-Built by **Abdul Rehman** — Founder & CEO of [Stayza](https://www.stayza.pk), Computer Science student at NUST.
+Built by **Abdul Rehman**, Founder & CEO of [Stayza](https://www.stayza.pk) and a Computer Science student at NUST.
 
 - Portfolio: [iamabdulrehman.vercel.app](https://iamabdulrehman.vercel.app)
 - GitHub: [@rehmanoncloud9](https://github.com/rehmanoncloud9)
