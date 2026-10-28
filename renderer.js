@@ -12,6 +12,12 @@ let showAddAccount = false;
 let addAccountProviderId = null;
 let showAddProvider = false;
 let showAbout = false;
+let activeView = "accounts";
+let expandedAccountId = null;
+let preferences = window.LimitTrackPreferences.current();
+let preferencesBusy = false;
+let preferencesError = "";
+let preferencesMessage = "";
 let pendingImport = null;
 let newAccountDraft = { providerId: "", email: "", cycleValue: "", cycleUnit: "days" };
 let newProviderDraft = { name: "", cycleValue: "7", cycleUnit: "days" };
@@ -296,6 +302,7 @@ function cycleProgress(acc, nowMs) {
 }
 
 function openAccountForm(providerId = null) {
+  activeView = "accounts";
   if (providerId && !state.providers.some((p) => p.id === providerId)) return;
   addAccountProviderId = providerId;
   if (providerId) newAccountDraft.providerId = providerId;
@@ -463,6 +470,7 @@ function rerenderPreservingFocus() {
   const action = active?.dataset.action;
   const id = active?.dataset.id;
   const accountRow = active?.dataset.accountRow;
+  const setting = active?.dataset.setting;
   const selStart = active && typeof active.selectionStart === "number" ? active.selectionStart : null;
   const selEnd = active && typeof active.selectionEnd === "number" ? active.selectionEnd : null;
   render();
@@ -478,6 +486,8 @@ function rerenderPreservingFocus() {
         }
       }
     }
+  } else if (setting) {
+    [...document.querySelectorAll("[data-setting]")].find((el) => el.dataset.setting === setting)?.focus({ preventScroll: true });
   } else if (action) {
     [...document.querySelectorAll("[data-action]")].find((el) => el.dataset.action === action && el.dataset.id === id)?.focus({ preventScroll: true });
   } else if (accountRow) {
@@ -504,8 +514,31 @@ function closeAbout() {
   pendingImport = null;
   showAbout = false;
   render();
-  if (aboutOpenerEl && document.body.contains(aboutOpenerEl)) aboutOpenerEl.focus();
+  document.querySelector('[data-action="toggle-about"]')?.focus();
   aboutOpenerEl = null;
+}
+
+async function savePreferences(patch) {
+  if (preferencesBusy) return;
+  preferencesBusy = true;
+  preferencesError = "";
+  preferencesMessage = "Saving…";
+  const focused = document.activeElement;
+  // Keep the active control in place until the asynchronous save completes.
+  document.querySelectorAll("[data-setting], [data-action='set-theme']").forEach((el) => { el.disabled = true; });
+  try {
+    preferences = await window.LimitTrackPreferences.update(patch);
+    preferencesMessage = "Saved";
+  } catch (error) {
+    preferencesError = "Settings were not saved. " + error.message;
+    preferencesMessage = "";
+  } finally {
+    preferencesBusy = false;
+    const setting = focused?.dataset.setting, action = focused?.dataset.action, id = focused?.dataset.id;
+    render();
+    if (setting) document.querySelector(`[data-setting="${setting}"]`)?.focus({ preventScroll: true });
+    else if (action) [...document.querySelectorAll("[data-action]")].find((el) => el.dataset.action === action && el.dataset.id === id)?.focus({ preventScroll: true });
+  }
 }
 
 // ---------- event delegation ----------
@@ -514,6 +547,8 @@ function attachEvents() {
   const app = document.getElementById("app");
 
   app.addEventListener("click", async (e) => {
+    const clickedMenu = e.target.closest("details[data-menu]");
+    document.querySelectorAll("details[data-menu][open]").forEach((item) => { if (item !== clickedMenu) item.open = false; });
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
     const action = btn.dataset.action;
@@ -527,6 +562,24 @@ function attachEvents() {
     if (!providerDeleteActions.includes(action)) pendingDeleteProviderId = null;
 
     switch (action) {
+      case "navigate":
+        activeView = ["accounts", "widgets", "settings"].includes(id) ? id : "accounts";
+        preferencesMessage = "";
+        render();
+        document.querySelector(`[data-action="navigate"][data-id="${activeView}"]`)?.focus();
+        break;
+      case "set-theme":
+        await savePreferences({ theme: id });
+        break;
+      case "toggle-account-details":
+        expandedAccountId = expandedAccountId === id ? null : id;
+        render();
+        [...document.querySelectorAll("[data-account-row]")].find((el) => el.dataset.accountRow === id)?.focus({ preventScroll: true });
+        break;
+      case "cancel-edit-cycle":
+        editingProviderId = null;
+        render();
+        break;
       case "toggle-add-account":
         if (showAddAccount && !addAccountProviderId) closeAccountForm();
         else openAccountForm();
@@ -535,6 +588,7 @@ function attachEvents() {
         openAccountForm(id);
         break;
       case "toggle-add-provider":
+        activeView = "accounts";
         showAddProvider = !showAddProvider;
         showAddAccount = false;
         render();
@@ -565,6 +619,7 @@ function attachEvents() {
           editingResetValue = toLocalInputValue(acc ? acc.resetAt : null);
         }
         render();
+        if (editingResetId) document.querySelector('[data-field="editing-reset-value"]')?.focus();
         break;
       }
       case "save-reset":
@@ -667,6 +722,8 @@ function attachEvents() {
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
+      const openMenu = document.querySelector("details[data-menu][open]");
+      if (openMenu && !showAbout) { openMenu.open = false; openMenu.querySelector("summary").focus(); return; }
       if (showAbout) {
         closeAbout();
       } else if (editingResetId) {
@@ -707,7 +764,7 @@ function attachEvents() {
     // Global shortcuts, ignored while the user is typing in a field or a
     // modal/panel is already open (so "n" doesn't fire while naming a tool).
     const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
-    if (showAbout || showAddAccount || showAddProvider) return;
+    if (activeView !== "accounts" || showAbout || showAddAccount || showAddProvider) return;
     if (!typing && e.key === "n") {
       e.preventDefault();
       openAccountForm();
@@ -778,7 +835,17 @@ function attachEvents() {
     }
   });
 
-  app.addEventListener("change", (e) => {
+  app.addEventListener("change", async (e) => {
+    const setting = e.target.dataset.setting;
+    if (setting) {
+      const value = setting === "widgetVisible" ? e.target.checked : setting === "widgetProviderId" ? e.target.value || null : e.target.value;
+      await savePreferences({ [setting]: value });
+      return;
+    }
+    if (e.target.dataset.field === "reset-preset" && e.target.value) {
+      applyPreset(e.target.dataset.id, Number(e.target.value));
+      return;
+    }
     if (e.target.id === "import-file-input") {
       const file = e.target.files && e.target.files[0];
       if (file) importBackup(file);
@@ -789,322 +856,131 @@ function attachEvents() {
 
 // ---------- render ----------
 
-function renderAccountForm(provider = null) {
-  const providerOptions = state.providers
-    .map((p) => `<option value="${p.id}" ${newAccountDraft.providerId === p.id ? "selected" : ""}>${escapeHtml(p.name)}</option>`)
-    .join("");
+function menu(label, contents) {
+  return `<details class="action-menu" data-menu><summary class="button quiet icon-button" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">⋯</summary><div class="menu-panel">${contents}</div></details>`;
+}
 
-  return `<div class="account-composer ${provider ? "border-b border-line bg-canvas/60" : "rounded-2xl bg-surface border border-line"} p-4 sm:p-5">
-                <div class="mb-4"><h3 class="text-base font-semibold text-ink">Add account${provider ? ` to ${escapeHtml(provider.name)}` : ""}</h3><p class="mt-1 text-xs text-muted">${provider ? `Uses this tool's configured ${cycleLabel(provider.cycleValue, provider.cycleUnit)} for estimates. Adjust it to match your plan.` : "Choose a tool and enter the account email. Status starts as not checked."}</p></div>
-                <div class="grid gap-3 sm:grid-cols-2">
-                  ${provider ? `<div class="flex items-center gap-2 text-sm text-ink px-1">${icon("check", 14)} ${escapeHtml(provider.name)}</div>` : `<select required aria-label="Tool" data-field="new-account-provider" class="bg-surface border border-line rounded-xl px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-blue-400 transition">
-                    <option value="">Select tool</option>
-                    ${providerOptions}
-                  </select>`}
-                  <input type="email" required aria-label="Account email" placeholder="you@example.com" data-field="new-account-email" value="${escapeHtml(newAccountDraft.email)}" class="bg-surface border border-line rounded-xl px-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
-                </div>
-                <div class="grid gap-3 sm:grid-cols-2 mt-3">
-                  <div class="flex items-center gap-2">
-                    <input type="number" min="0.01" max="100000" step="any" placeholder="Custom duration" aria-label="Custom reset duration (optional)" data-field="new-account-cycle" value="${escapeHtml(newAccountDraft.cycleValue)}" class="w-full bg-surface border border-line rounded-xl px-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
-                    <select data-field="new-account-cycle-unit" class="bg-surface border border-line rounded-xl px-2 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-blue-400 transition">
-                      <option value="days" ${newAccountDraft.cycleUnit === "days" ? "selected" : ""}>days</option>
-                      <option value="hours" ${newAccountDraft.cycleUnit === "hours" ? "selected" : ""}>hours</option>
-                    </select>
-                  </div>
-                  <div class="text-xs text-muted flex items-center px-1">Optional. Leave blank to use the tool’s default reset cycle.</div>
-                </div>
-                <div class="flex flex-wrap gap-2 mt-4">
-                  <button data-action="save-add-account" class="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white text-sm font-medium px-4 py-2 shadow-sm shadow-blue-500/30 transition-all active:scale-95">${icon("check", 14)} Add account</button>
-                  <button data-action="save-add-another-account" class="rounded-full bg-accent-soft hover:bg-accent-soft text-accent-ink text-sm font-medium px-4 py-2 transition-colors">Add &amp; add another</button>
-                  <button data-action="cancel-add-account" class="inline-flex items-center gap-1.5 rounded-full bg-surface border border-line hover:bg-canvas text-muted text-sm px-4 py-2 transition-all active:scale-95">${icon("x", 14)} Cancel</button>
-                </div>
-              </div>`;
+function statusNote(account, status) {
+  return status === "locked" || status === "soon" ? account.resetSource === "exact" ? "Recorded reset" : "Estimated reset" : "";
+}
+
+function renderAccountForm(provider = null) {
+  return `<div class="composer">
+    <h3>Add account${provider ? ` to ${escapeHtml(provider.name)}` : ""}</h3>
+    <p class="help">${provider ? "The tool is already selected." : "Choose a tool for this account."}</p>
+    <div class="form-grid">
+      ${provider ? "" : `<label class="field">Tool<select required aria-label="Tool" data-field="new-account-provider"><option value="">Select a tool</option>${state.providers.map((p) => `<option value="${escapeHtml(p.id)}" ${newAccountDraft.providerId === p.id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}</select></label>`}
+      <label class="field">Account email<input type="email" required aria-label="Account email" data-field="new-account-email" placeholder="you@example.com" value="${escapeHtml(newAccountDraft.email)}" /></label>
+    </div>
+    <details class="advanced-fields"><summary>Custom reset cycle (optional)</summary><div class="form-grid"><label class="field">Duration<input type="number" min="0.01" max="100000" step="any" aria-label="Custom reset duration (optional)" data-field="new-account-cycle" value="${escapeHtml(newAccountDraft.cycleValue)}" placeholder="Use tool default" /></label><label class="field">Unit<select aria-label="Reset cycle unit" data-field="new-account-cycle-unit"><option value="days" ${newAccountDraft.cycleUnit === "days" ? "selected" : ""}>Days</option><option value="hours" ${newAccountDraft.cycleUnit === "hours" ? "selected" : ""}>Hours</option></select></label></div><p class="help">${provider ? `Default: ${cycleLabel(provider.cycleValue, provider.cycleUnit)}.` : "Leave blank to use the tool's cycle."} Calculated resets are estimates.</p></details>
+    <div class="button-row"><button class="button primary" data-action="save-add-account">Add account</button><button class="button" data-action="save-add-another-account">Add &amp; add another</button><button class="button quiet" data-action="cancel-add-account">Cancel</button></div>
+  </div>`;
+}
+
+function renderResetEditor(account) {
+  return `<div class="reset-editor"><div class="form-grid"><label class="field">Reset date and time<input type="datetime-local" aria-label="Reset date and time" data-field="editing-reset-value" value="${escapeHtml(editingResetValue)}" /></label><label class="field">Or reset in<select aria-label="Reset in" data-field="reset-preset" data-id="${escapeHtml(account.id)}"><option value="">Choose a duration</option>${RESET_PRESETS.map((p) => `<option value="${p.hours}">${p.label}</option>`).join("")}</select></label></div><div class="help" id="reset-preview">${formatRelativePreview(editingResetValue)}</div><div class="button-row"><button class="button primary small" data-action="save-reset" data-id="${escapeHtml(account.id)}">Save reset</button><button class="button quiet small" data-action="cancel-reset-edit">Cancel</button></div></div>`;
+}
+
+function renderAccount(account, nowMs) {
+  const id = escapeHtml(account.id), status = getStatus(account, nowMs);
+  const primaryAction = status === "open" ? "mark-hit" : status === "locked" || status === "soon" ? "toggle-reset-edit" : "clear-hit";
+  const primaryLabel = status === "open" ? "Log limit" : status === "locked" || status === "soon" ? "Edit reset" : "Mark available";
+  const items = `<button data-action="toggle-account-details" data-id="${id}">Account details</button>
+    ${primaryAction !== "mark-hit" ? `<button data-action="mark-hit" data-id="${id}">Log limit</button>` : ""}
+    ${primaryAction !== "toggle-reset-edit" ? `<button data-action="toggle-reset-edit" data-id="${id}">Set reset time</button>` : ""}
+    ${status === "locked" || status === "soon" ? `<button data-action="clear-hit" data-id="${id}">Mark available</button>` : ""}
+    <button class="destructive" data-action="request-delete-account" data-id="${id}">Remove account</button>`;
+  return `<div data-account-row="${id}" tabindex="-1">
+    <div class="account-row">
+      <div class="account-identity">${bulkMode ? `<input type="checkbox" aria-label="Select ${escapeHtml(account.email)}" data-action="toggle-select" data-id="${id}" ${selectedIds.has(account.id) ? "checked" : ""} />` : `<span class="status-dot status-${status}" id="dot-${id}" aria-hidden="true"></span>`}<div class="account-name" title="${escapeHtml(account.email)}">${escapeHtml(account.email)}</div></div>
+      <div class="account-status-block"><div class="account-status status-${status}" id="countdown-${id}">${formatCountdown(account, nowMs)}</div><div class="account-status-note" id="label-${id}">${statusNote(account, status)}</div></div>
+      <div class="row-actions"><button class="button small" data-action="${primaryAction}" data-id="${id}">${primaryLabel}</button>${menu(`More actions for ${account.email}`, items)}</div>
+    </div>
+    ${pendingDeleteAccountId === account.id ? `<div class="delete-prompt">Remove ${escapeHtml(account.email)}?<button class="button danger small" data-action="confirm-delete-account" data-id="${id}">Remove</button><button class="button quiet small" data-action="cancel-delete-account">Cancel</button></div>` : ""}
+    ${expandedAccountId === account.id ? `<div class="account-detail"><dl class="meta-grid"><div><dt>Limit logged</dt><dd>${account.lastHitAt ? formatWhen(account.lastHitAt) : "No limit recorded"}</dd></div><div><dt>${account.resetSource === "exact" ? "Recorded reset" : "Estimated reset"}</dt><dd>${account.resetAt ? formatWhen(account.resetAt) : "No active timer"}</dd></div><div><dt>Availability confirmed</dt><dd>${account.confirmedAvailableAt ? formatWhen(account.confirmedAvailableAt) : "Not confirmed"}</dd></div><div><dt>Reset cycle</dt><dd>${cycleLabel(accountCycle(account).value, accountCycle(account).unit)}</dd></div></dl></div>` : ""}
+    ${editingResetId === account.id ? renderResetEditor(account) : ""}
+  </div>`;
+}
+
+function renderProvider(provider, nowMs) {
+  const id = escapeHtml(provider.id), query = searchQuery.trim().toLowerCase();
+  const all = state.accounts.filter((a) => a.providerId === provider.id);
+  const accounts = all.filter((a) => !query || a.email.toLowerCase().includes(query) || provider.name.toLowerCase().includes(query))
+    .filter((a) => statusFilter === "all" || (statusFilter === "waiting" ? ["locked", "soon"].includes(getStatus(a, nowMs)) : getStatus(a, nowMs) === statusFilter))
+    .sort((a, b) => {
+      if (sortMode === "alpha") return a.email.localeCompare(b.email);
+      const first = effectiveTime(a, nowMs), second = effectiveTime(b, nowMs);
+      return first === second ? a.email.localeCompare(b.email) : first - second;
+    });
+  const items = `<button data-action="edit-cycle" data-id="${id}">Edit reset cycle</button>${all.length === 0 ? `<button class="destructive" data-action="request-delete-provider" data-id="${id}">Remove tool</button>` : ""}`;
+  return `<section class="tool-card" aria-label="${escapeHtml(provider.name)} accounts">
+    <header class="tool-heading"><div class="tool-identity"><h3>${escapeHtml(provider.name)}</h3><span class="tool-count" id="provider-count-${id}">${all.length} ${all.length === 1 ? "account" : "accounts"}</span></div><div class="row-actions"><button class="button quiet small" data-action="add-account-to-provider" data-id="${id}" aria-label="Add account to ${escapeHtml(provider.name)}">${icon("plus", 14)} Add account</button>${menu(`${provider.name} options`, items)}</div></header>
+    ${editingProviderId === provider.id ? `<div class="cycle-editor"><p class="help">Used to estimate resets when you log a limit. Match this to your plan.</p><div class="form-grid"><label class="field">Duration<input type="number" min="0.01" max="100000" step="any" aria-label="Cycle length" data-field="editing-cycle-value" value="${escapeHtml(editingCycleValue)}" /></label><label class="field">Unit<select aria-label="Cycle unit" data-field="editing-cycle-unit"><option value="days" ${editingCycleUnit === "days" ? "selected" : ""}>Days</option><option value="hours" ${editingCycleUnit === "hours" ? "selected" : ""}>Hours</option></select></label></div><div class="button-row"><button class="button primary small" data-action="save-cycle" data-id="${id}">Save cycle</button><button class="button quiet small" data-action="cancel-edit-cycle">Cancel</button></div></div>` : ""}
+    ${pendingDeleteProviderId === provider.id ? `<div class="delete-prompt">Remove this empty tool?<button class="button danger small" data-action="confirm-delete-provider" data-id="${id}">Remove</button><button class="button quiet small" data-action="cancel-delete-provider">Cancel</button></div>` : ""}
+    ${showAddAccount && addAccountProviderId === provider.id ? renderAccountForm(provider) : ""}
+    ${accounts.map((account) => renderAccount(account, nowMs)).join("")}
+    ${accounts.length === 0 && !(showAddAccount && addAccountProviderId === provider.id) ? `<p class="empty-copy">${all.length ? "No accounts match your filters." : "No accounts yet."}</p>` : ""}
+  </section>`;
+}
+
+function renderAddTool() {
+  return `<section class="tool-card composer"><h3>Add tool</h3><div class="form-grid"><label class="field">Tool name<input type="text" required data-field="new-provider-name" placeholder="For example, Cursor" value="${escapeHtml(newProviderDraft.name)}" /></label><label class="field">Estimated reset cycle<div class="field-pair"><input type="number" min="0.01" max="100000" step="any" data-field="new-provider-cycle" aria-label="Reset duration" value="${escapeHtml(newProviderDraft.cycleValue)}" /><select aria-label="Reset unit" data-field="new-provider-cycle-unit"><option value="days" ${newProviderDraft.cycleUnit === "days" ? "selected" : ""}>Days</option><option value="hours" ${newProviderDraft.cycleUnit === "hours" ? "selected" : ""}>Hours</option></select></div></label></div><div class="button-row"><button class="button primary" data-action="save-add-provider">Add tool</button><button class="button quiet" data-action="cancel-add-provider">Cancel</button></div></section>`;
+}
+
+function renderAccounts(nowMs) {
+  const available = state.accounts.filter((a) => getStatus(a, nowMs) === "open").length;
+  const next = state.accounts.filter((a) => ["locked", "soon"].includes(getStatus(a, nowMs))).sort((a, b) => effectiveTime(a, nowMs) - effectiveTime(b, nowMs))[0];
+  return `<div class="page-heading"><div><h2>Accounts</h2><p class="help" id="summary-text">${available} available · ${state.accounts.length} tracked</p></div><button class="button primary" data-action="toggle-add-account">${icon("plus", 16)} Add account</button></div>
+    <div class="toolbar"><input class="search-field" data-field="search-query" aria-label="Search accounts" placeholder="Search accounts or tools" value="${escapeHtml(searchQuery)}" /><select aria-label="Filter by status" data-field="status-filter">${[["all", "All statuses"], ["open", "Available"], ["waiting", "Waiting"], ["ready", "Expected ready"], ["unknown", "Not checked"]].map(([value, label]) => `<option value="${value}" ${statusFilter === value ? "selected" : ""}>${label}</option>`).join("")}</select>${menu("More account options", `<button data-action="toggle-add-provider">Add tool</button><button data-action="toggle-bulk-mode">${bulkMode ? "Stop selecting" : "Select accounts"}</button><button data-action="toggle-sort">Sort ${sortMode === "soonest" ? "A–Z" : "by next reset"}</button>`)}</div>
+    ${next ? `<p class="help" style="margin:0 0 18px">Next reset in <span id="next-reset-countdown">${formatCountdown(next, nowMs)}</span> · <span id="next-reset-tool">${escapeHtml(state.providers.find((p) => p.id === next.providerId)?.name || "Account")}</span></p>` : ""}
+    ${bulkMode ? `<div class="bulk-bar"><span>${selectedIds.size} selected</span><button class="button small" data-action="bulk-mark-hit" ${selectedIds.size ? "" : "disabled"}>Log limit for selected</button><button class="button quiet small" data-action="toggle-bulk-mode">Cancel</button></div>` : ""}
+    <div class="tool-list">${showAddAccount && !addAccountProviderId ? `<section class="tool-card">${renderAccountForm()}</section>` : ""}${showAddProvider ? renderAddTool() : ""}${state.providers.map((p) => renderProvider(p, nowMs)).join("")}${state.providers.length === 0 ? `<section class="settings-card"><h3>Add your first tool</h3><p class="help">Start with the coding tool you use most.</p><div class="button-row"><button class="button" data-action="toggle-add-provider">Add tool</button></div></section>` : ""}</div>`;
+}
+
+function renderWidgets() {
+  return `<div class="page-heading"><div><h2>Widgets</h2><p class="help">Keep your accounts in view while you work.</p></div></div><div class="settings-stack"><section class="settings-card" id="widget-settings"><h3>Desktop widget</h3>
+    <div class="setting-row"><div><div class="setting-label">Tool to show</div><p class="help">Track one tool, or see all accounts together.</p></div><select aria-label="Widget tool" data-setting="widgetProviderId" ${preferencesBusy ? "disabled" : ""}><option value="">All tools</option>${state.providers.map((p) => `<option value="${escapeHtml(p.id)}" ${preferences.widgetProviderId === p.id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}</select></div>
+    <div class="setting-row"><div><label class="toggle-label"><input type="checkbox" role="switch" aria-label="Show desktop widget" data-setting="widgetVisible" ${preferences.widgetVisible ? "checked" : ""} ${preferencesBusy ? "disabled" : ""} /><span class="setting-label">Show desktop widget</span></label><p class="help" style="margin-left:27px">${preferences.widgetVisible ? "On — the widget appears above your other windows." : "Off — enable it to place the widget on your desktop."}</p></div></div>
+    <p class="setup-note">Choose a tool, turn on the widget, then drag its header to move it. Closing the widget hides it; you can turn it back on here. Theme and font follow Settings.</p>
+    <div class="settings-feedback" role="status">${preferencesBusy ? "Saving…" : preferencesMessage}</div>
+  </section></div>`;
+}
+
+function renderBackupSettings() {
+  return `<section class="settings-card"><h3>Backup &amp; restore</h3><p class="help">Your accounts stay on this device. Export a copy before moving computers.</p><div class="button-row"><button class="button" data-action="export-backup">Export backup</button><button class="button" data-action="trigger-import">Import backup</button><input type="file" hidden id="import-file-input" accept="application/json,.json" /></div>${pendingImport ? `<div class="import-preview"><p>Replace ${state.accounts.length} accounts with ${pendingImport.accounts.length} accounts from this backup? A recovery copy is saved first.</p><div class="button-row"><button class="button primary" data-action="confirm-import">Replace accounts</button><button class="button quiet" data-action="cancel-import">Cancel import</button></div></div>` : ""}</section>`;
+}
+
+function renderSettings() {
+  return `<div class="page-heading"><div><h2>Settings</h2><p class="help">Make LimitTrack comfortable to use.</p></div></div><div class="settings-stack"><section class="settings-card"><h3>Appearance</h3>
+    <div class="setting-row"><div><div class="setting-label">Theme</div><p class="help">Applies to the app and desktop widget.</p></div><div class="segmented" role="group" aria-label="Theme">${[["system", "System"], ["light", "Light"], ["dark", "Dark"]].map(([value, label]) => `<button data-action="set-theme" data-id="${value}" aria-pressed="${preferences.theme === value}" ${preferencesBusy ? "disabled" : ""}>${label}</button>`).join("")}</div></div>
+    <div class="setting-row"><div><div class="setting-label">Font</div><p class="help">System uses your device's native interface font.</p></div><select aria-label="Interface font" data-setting="font" ${preferencesBusy ? "disabled" : ""}><option value="system" ${preferences.font === "system" ? "selected" : ""}>System (default)</option><option value="inter" ${preferences.font === "inter" ? "selected" : ""}>Inter</option></select></div>
+    <div class="settings-feedback" role="status">${preferencesBusy ? "Saving…" : preferencesMessage}</div>
+    </section>${renderBackupSettings()}<div class="settings-footer"><span>LimitTrack · Local storage</span><button class="button quiet small" data-action="toggle-about" aria-haspopup="dialog">About</button></div></div>`;
 }
 
 function render() {
-  const now = new Date();
-  const nowMs = now.getTime();
-  const totalAccounts = state.accounts.length;
-  const openAccounts = state.accounts.filter((a) => getStatus(a, nowMs) === "open").length;
-  const next = state.accounts.filter((a) => ["locked", "soon"].includes(getStatus(a, nowMs)))
-    .sort((a, b) => effectiveTime(a, nowMs) - effectiveTime(b, nowMs))[0];
-  const nextProvider = next && state.providers.find((p) => p.id === next.providerId);
-
-  const providerSections = state.providers
-    .map((provider) => {
-      const query = searchQuery.trim().toLowerCase();
-      const accounts = state.accounts
-        .filter((a) => a.providerId === provider.id)
-        .filter((a) => !query || a.email.toLowerCase().includes(query) || provider.name.toLowerCase().includes(query))
-        .filter((a) => statusFilter === "all" || (statusFilter === "waiting" ? ["locked", "soon"].includes(getStatus(a, nowMs)) : getStatus(a, nowMs) === statusFilter))
-        .sort((a, b) => {
-          if (sortMode === "alpha") return a.email.localeCompare(b.email);
-          const ea = effectiveTime(a, nowMs);
-          const eb = effectiveTime(b, nowMs);
-          if (ea === -1 && eb === -1) return a.email.localeCompare(b.email);
-          return ea === eb ? a.email.localeCompare(b.email) : ea - eb;
-        });
-      const allAccountsForProvider = state.accounts.filter((a) => a.providerId === provider.id);
-      const openCount = allAccountsForProvider.filter((a) => getStatus(a, nowMs) === "open").length;
-
-      const cycleBadge =
-        editingProviderId === provider.id
-          ? `<span class="flex items-center gap-1">
-               <input type="number" min="0.01" max="100000" step="any" value="${escapeHtml(editingCycleValue)}" data-field="editing-cycle-value" aria-label="Cycle length" class="w-14 bg-surface border border-line rounded-lg px-1.5 py-0.5 text-xs text-ink" />
-               <select data-field="editing-cycle-unit" aria-label="Cycle unit" class="bg-surface border border-line rounded-lg px-1.5 py-0.5 text-xs text-ink">
-                 <option value="days" ${editingCycleUnit === "days" ? "selected" : ""}>days</option>
-                 <option value="hours" ${editingCycleUnit === "hours" ? "selected" : ""}>hours</option>
-               </select>
-               <button data-action="save-cycle" data-id="${provider.id}" aria-label="Save cycle" class="text-success">${icon("check", 13)}</button>
-             </span>`
-          : `<button data-action="edit-cycle" data-id="${provider.id}" aria-label="Edit ${escapeHtml(provider.name)} reset cycle" class="inline-flex items-center gap-1 text-xs text-muted hover:text-ink bg-subtle/80 hover:bg-line/80 rounded-full px-2.5 py-1 transition-colors">
-               ${cycleLabel(provider.cycleValue, provider.cycleUnit)} ${icon("pencil", 10)}
-             </button>`;
-
-      const noMatch = allAccountsForProvider.length > 0 && accounts.length === 0;
-      const accountRows =
-        allAccountsForProvider.length === 0
-          ? `<div class="px-5 py-4 text-sm text-muted">No accounts added for ${escapeHtml(provider.name)} yet.</div>`
-          : noMatch
-          ? `<div class="px-5 py-4 text-sm text-muted">No accounts match the current search and status filter.</div>`
-          : accounts
-              .map((acc) => {
-                const status = getStatus(acc, nowMs);
-                const styles = statusStyles(status);
-                const progress = cycleProgress(acc, nowMs);
-                const isPendingDelete = pendingDeleteAccountId === acc.id;
-                const resetEditPanel =
-                  editingResetId === acc.id
-                    ? `<div class="border-t border-line/60 bg-canvas/60 px-5 py-3">
-                         <div class="flex flex-wrap items-center gap-1.5 mb-2.5">
-                           ${RESET_PRESETS.map(
-                             (p) =>
-                               `<button data-action="apply-preset" data-id="${acc.id}" data-hours="${p.hours}" class="rounded-full bg-surface hover:bg-accent-soft border border-line hover:border-blue-200 text-muted hover:text-accent-ink text-xs font-medium px-3 py-1 transition-all active:scale-95">${p.label}</button>`
-                           ).join("")}
-                         </div>
-                         <div class="flex flex-wrap items-center gap-2">
-                           <label class="text-xs text-muted">or pick exactly</label>
-                           <input type="datetime-local" data-field="editing-reset-value" value="${escapeHtml(editingResetValue)}" class="bg-surface border border-line rounded-xl px-2 py-1.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
-                           <span id="reset-preview" class="text-xs font-medium text-accent-ink">${formatRelativePreview(editingResetValue)}</span>
-                           <button data-action="save-reset" data-id="${acc.id}" class="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-xs font-medium px-3 py-1.5 shadow-sm shadow-blue-500/30 transition-all active:scale-95">${icon("check", 13)} Save</button>
-                           <button data-action="cancel-reset-edit" data-id="${acc.id}" class="inline-flex items-center gap-1 rounded-full bg-surface border border-line hover:bg-canvas text-muted text-xs px-3 py-1.5 transition-all active:scale-95">${icon("x", 13)} Cancel</button>
-                         </div>
-                       </div>`
-                    : "";
-                const actionButtons = isPendingDelete
-                  ? `<div class="flex items-center gap-1.5 bg-danger-soft rounded-full pl-3 pr-1.5 py-1">
-                       <span class="text-xs text-danger font-medium">Remove?</span>
-                       <button data-action="confirm-delete-account" data-id="${acc.id}" aria-label="Confirm remove account" class="p-1 rounded-full bg-danger-soft0 hover:bg-red-600 text-white transition-colors">${icon("check", 12)}</button>
-                       <button data-action="cancel-delete-account" data-id="${acc.id}" aria-label="Cancel remove account" class="p-1 rounded-full bg-surface hover:bg-subtle text-muted transition-colors">${icon("x", 12)}</button>
-                     </div>`
-                  : `${status === "unknown" || status === "ready" ? `<button data-action="clear-hit" data-id="${acc.id}" class="rounded-full bg-success-soft hover:bg-success-soft text-success text-xs font-medium px-3 py-1.5">Mark available</button>` : ""}<button data-action="mark-hit" data-id="${acc.id}" class="inline-flex items-center gap-1 rounded-full bg-accent-soft hover:bg-accent-soft border border-blue-100 text-accent-ink text-xs font-medium px-3 py-1.5 transition-all active:scale-95" title="Estimate the reset from now using the configured cycle">${icon("clock", 12)} Log limit</button>
-                     <button data-action="toggle-reset-edit" data-id="${acc.id}" aria-label="Set exact reset time for ${escapeHtml(acc.email)}" class="p-1.5 rounded-full hover:bg-subtle transition-colors ${editingResetId === acc.id ? "text-blue-500" : "text-muted hover:text-blue-500"}" title="Set an exact reset date & time">${icon("calendar", 14)}</button>
-                     ${status === "locked" || status === "soon" ? `<button data-action="clear-hit" data-id="${acc.id}" aria-label="Mark ${escapeHtml(acc.email)} available" class="p-1.5 rounded-full text-muted hover:text-success hover:bg-success-soft transition-colors" title="Mark available and clear the timer">${icon("check", 13)}</button>` : ""}
-                     <button data-action="request-delete-account" data-id="${acc.id}" aria-label="Remove account ${escapeHtml(acc.email)}" class="p-1.5 rounded-full text-muted hover:text-red-500 hover:bg-danger-soft transition-colors" title="Remove account">${icon("trash", 13)}</button>`;
-                return `
-                  <div data-account-row="${escapeHtml(acc.id)}" tabindex="-1">
-                    <div class="flex items-center justify-between gap-3 border-t border-line/60 px-5 py-3.5 flex-wrap hover:bg-surface/40 transition-colors">
-                      <div class="flex items-center gap-3 min-w-0">
-                        ${
-                          bulkMode
-                            ? `<input type="checkbox" data-action="toggle-select" data-id="${acc.id}" ${selectedIds.has(acc.id) ? "checked" : ""} aria-label="Select ${escapeHtml(acc.email)}" class="h-4 w-4 rounded border-line text-accent-ink focus:ring-blue-400 flex-shrink-0" />`
-                            : `<span id="dot-${acc.id}" class="h-2.5 w-2.5 rounded-full flex-shrink-0 ${styles.dot}"></span>`
-                        }
-                        <div class="min-w-0">
-                          <div class="text-sm font-medium text-ink truncate">${escapeHtml(acc.email)}</div>
-                          <div class="text-xs text-muted">
-                            Limit logged ${formatWhen(acc.lastHitAt)}
-                            ${acc.cycleValue ? `<span class="ml-1 text-muted">&middot; custom ${cycleLabel(acc.cycleValue, acc.cycleUnit)}</span>` : ""}
-                          </div>
-                          ${acc.resetAt ? `<div class="text-xs text-muted mt-1">${acc.resetSource === "exact" ? "Recorded reset" : "Estimated reset"} · ${escapeHtml(formatWhen(acc.resetAt))}</div>` : ""}
-                          ${
-                            progress !== null
-                              ? `<div class="mt-1.5 h-1 w-32 max-w-full rounded-full bg-line overflow-hidden">
-                                   <div id="progress-${acc.id}" class="h-full rounded-full ${status === "soon" ? "bg-orange-400" : "bg-slate-400"} transition-all" style="width:${progress.toFixed(1)}%"></div>
-                                 </div>`
-                              : ""
-                          }
-                        </div>
-                      </div>
-                      <div class="flex items-center gap-2 flex-shrink-0">
-                        <div class="text-right mr-1">
-                          <div id="countdown-${acc.id}" class="font-sans text-sm font-semibold tabular-nums ${styles.text}">${formatCountdown(acc, nowMs)}</div>
-                          <div id="label-${acc.id}" class="text-xs ${styles.text}">${styles.label}</div>
-                        </div>
-                        ${actionButtons}
-                      </div>
-                    </div>
-                    ${resetEditPanel}
-                  </div>
-                `;
-              })
-              .join("");
-
-      const isPendingProviderDelete = pendingDeleteProviderId === provider.id;
-      const providerDeleteControl =
-        allAccountsForProvider.length === 0
-          ? isPendingProviderDelete
-            ? `<span class="flex items-center gap-1">
-                 <span class="text-xs text-danger font-medium">Remove tool?</span>
-                 <button data-action="confirm-delete-provider" data-id="${provider.id}" aria-label="Confirm remove ${escapeHtml(provider.name)}" class="p-1 rounded-full bg-danger-soft0 hover:bg-red-600 text-white transition-colors">${icon("check", 12)}</button>
-                 <button data-action="cancel-delete-provider" data-id="${provider.id}" aria-label="Cancel remove ${escapeHtml(provider.name)}" class="p-1 rounded-full bg-surface hover:bg-subtle text-muted transition-colors">${icon("x", 12)}</button>
-               </span>`
-            : `<button data-action="request-delete-provider" data-id="${provider.id}" aria-label="Remove tool ${escapeHtml(provider.name)}" class="p-1 rounded-full text-muted hover:text-red-500 hover:bg-danger-soft transition-colors" title="Remove tool">${icon("trash", 13)}</button>`
-          : "";
-
-      return `
-        <div class="rounded-3xl bg-surface/80 ring-1 ring-line shadow-sm overflow-hidden">
-          <div class="flex items-center justify-between gap-2 bg-surface/40 border-b border-line/60 px-5 py-3.5 flex-wrap">
-            <div class="flex items-center gap-3">
-              <span class="text-section font-semibold text-ink">${escapeHtml(provider.name)}</span>
-              ${cycleBadge}
-            </div>
-            <div class="flex items-center gap-3">
-              <span id="provider-count-${provider.id}" class="text-xs text-muted">${allAccountsForProvider.length === 0 ? "no accounts" : `${openCount}/${allAccountsForProvider.length} marked available`}</span>
-              <button data-action="add-account-to-provider" data-id="${escapeHtml(provider.id)}" aria-label="Add account to ${escapeHtml(provider.name)}" aria-expanded="${showAddAccount && addAccountProviderId === provider.id}" class="inline-flex items-center gap-1.5 rounded-full bg-accent-soft hover:bg-accent-soft text-accent-ink text-xs font-medium px-3 py-2 transition-colors">${icon("plus", 14)} Add account</button>
-              ${providerDeleteControl}
-            </div>
-          </div>
-          ${showAddAccount && addAccountProviderId === provider.id ? renderAccountForm(provider) : ""}
-          ${accountRows}
-        </div>
-      `;
-    })
-    .join("");
-
-  document.getElementById("app").innerHTML = `
-    <div class="relative min-h-screen overflow-hidden bg-canvas p-4 sm:p-8">
-      <div class="relative z-10 max-w-3xl mx-auto">
-        ${persistenceError ? `<div role="alert" class="mb-4 rounded-2xl bg-danger-soft border border-danger text-danger p-4 text-sm">${escapeHtml(persistenceError)}</div>` : ""}
-        <div class="flex items-start justify-between gap-4 pb-6 mb-6 border-b border-line/70 flex-wrap">
-          <div class="flex items-center gap-3">
-            <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/30 text-white">${icon("clock", 20)}</div>
-            <div>
-              <h1 class="text-2xl font-semibold tracking-tight text-ink">LimitTrack</h1>
-              <p id="summary-text" class="text-sm text-muted mt-0.5">${totalAccounts === 0 ? "Your next session, a little clearer." : `${openAccounts} of ${totalAccounts} marked available`}</p>
-            </div>
-          </div>
-          <div class="flex items-center gap-2">
-            <div class="rounded-2xl bg-surface/60 backdrop-blur-md px-4 py-2.5 shadow-sm ring-1 ring-line text-right">
-              <div class="text-xs text-muted">Next reset</div>
-              <div id="next-reset-countdown" class="text-xl font-semibold tabular-nums text-ink">${next ? formatCountdown(next, nowMs) : "No active timers"}</div>
-              <div id="next-reset-tool" class="text-xs text-muted">${next ? escapeHtml(nextProvider ? nextProvider.name : "Account") : "Recorded locally"}</div>
-            </div>
-            <button data-action="toggle-about" aria-label="About LimitTrack" aria-haspopup="dialog" class="h-9 w-9 flex items-center justify-center rounded-full bg-surface/60 backdrop-blur-md hover:bg-surface text-muted hover:text-blue-500 shadow-sm ring-1 ring-line transition-colors" title="About LimitTrack">${icon("info", 16)}</button>
-          </div>
-        </div>
-
-        <div class="flex flex-wrap items-center gap-2 mb-4">
-          <button data-action="toggle-add-account" class="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white text-sm font-medium px-4 py-2 shadow-md shadow-blue-500/30 transition-all active:scale-95">${icon("plus", 16)} Add account</button>
-          <button data-action="toggle-add-provider" class="inline-flex items-center gap-1.5 rounded-full bg-surface/70 backdrop-blur-md hover:bg-surface text-ink text-sm font-medium px-4 py-2 shadow-sm ring-1 ring-line transition-all active:scale-95">${icon("plus", 16)} Add tool</button>
-          <button data-action="toggle-bulk-mode" aria-pressed="${bulkMode}" class="inline-flex items-center gap-1.5 rounded-full ${bulkMode ? "bg-accent-soft text-accent-ink ring-1 ring-blue-200" : "bg-surface/70 backdrop-blur-md hover:bg-surface text-ink ring-1 ring-line"} text-sm font-medium px-4 py-2 shadow-sm transition-all active:scale-95">${icon("checkSquare", 16)} ${bulkMode ? "Cancel select" : "Select"}</button>
-          <div class="flex-1"></div>
-          <button data-action="toggle-sort" title="Toggle sort order" aria-label="Sort accounts by ${sortMode === "soonest" ? "email A-Z" : "soonest reset"}" class="inline-flex items-center gap-1.5 rounded-full bg-surface/70 backdrop-blur-md hover:bg-surface text-muted text-xs font-medium px-3 py-2 shadow-sm ring-1 ring-line transition-all active:scale-95">${icon("sort", 14)} ${sortMode === "soonest" ? "Soonest first" : "A–Z"}</button>
-          <div class="relative">
-            <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted">${icon("search", 14)}</span>
-            <input type="text" data-field="search-query" value="${escapeHtml(searchQuery)}" placeholder="Search accounts... (/)" aria-label="Search accounts" class="w-44 sm:w-56 bg-surface/70 backdrop-blur-md border border-line rounded-full pl-9 pr-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
-          </div>
-          <select data-field="status-filter" aria-label="Filter by status" class="bg-surface border border-line rounded-full px-3 py-2 text-xs text-ink">
-            ${[["all", "All statuses"], ["open", "Marked available"], ["waiting", "Waiting"], ["ready", "Expected ready"], ["unknown", "Not checked"]].map(([value, label]) => `<option value="${value}" ${statusFilter === value ? "selected" : ""}>${label}</option>`).join("")}
-          </select>
-        </div>
-
-        ${
-          bulkMode
-            ? `<div class="mb-6 flex flex-wrap items-center gap-3 rounded-2xl bg-accent-soft/80 ring-1 ring-blue-100 px-4 py-2.5">
-                 <span class="text-sm text-accent-ink">${selectedIds.size} selected</span>
-                 <button data-action="bulk-mark-hit" ${selectedIds.size === 0 ? "disabled" : ""} class="inline-flex items-center gap-1.5 rounded-full bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium px-3 py-1.5 transition-all active:scale-95">${icon("clock", 12)} Log limit for selected</button>
-               </div>`
-            : ""
-        }
-
-        ${showAddAccount && !addAccountProviderId ? `<div class="mb-6">${renderAccountForm()}</div>` : ""}
-
-        ${
-          showAddProvider
-            ? `<div class="mb-6 rounded-2xl bg-surface/70 backdrop-blur-xl ring-1 ring-line shadow-lg p-4 sm:p-5">
-                <div class="grid gap-3 sm:grid-cols-2">
-                  <input type="text" placeholder="tool name (e.g. Cursor)" data-field="new-provider-name" value="${escapeHtml(newProviderDraft.name)}" class="bg-surface border border-line rounded-xl px-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
-                  <div class="flex items-center gap-2">
-                    <input type="number" min="0.01" max="100000" step="any" placeholder="reset cycle" data-field="new-provider-cycle" value="${escapeHtml(newProviderDraft.cycleValue)}" class="w-full bg-surface border border-line rounded-xl px-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
-                    <select data-field="new-provider-cycle-unit" class="bg-surface border border-line rounded-xl px-2 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-blue-400 transition">
-                      <option value="days" ${newProviderDraft.cycleUnit === "days" ? "selected" : ""}>days</option>
-                      <option value="hours" ${newProviderDraft.cycleUnit === "hours" ? "selected" : ""}>hours</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="flex gap-2 mt-3">
-                  <button data-action="save-add-provider" class="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white text-sm font-medium px-4 py-2 shadow-sm shadow-blue-500/30 transition-all active:scale-95">${icon("check", 14)} Save</button>
-                  <button data-action="cancel-add-provider" class="inline-flex items-center gap-1.5 rounded-full bg-surface border border-line hover:bg-canvas text-muted text-sm px-4 py-2 transition-all active:scale-95">${icon("x", 14)} Cancel</button>
-                </div>
-              </div>`
-            : ""
-        }
-
-        <div class="space-y-6">
-          ${providerSections}
-        </div>
-      </div>
-
-      ${
-        showAbout
-          ? `<div data-action="close-about" style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,0.4);backdrop-filter:blur(4px);padding:1rem;">
-              <div id="about-modal" role="dialog" aria-modal="true" aria-labelledby="about-modal-title" style="max-width:24rem;width:100%;border-radius:24px;background:rgb(var(--surface) / 0.98);box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);padding:1.5rem;">
-                <div class="flex items-center gap-3 mb-4">
-                  <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/30">${icon("clock", 22)}</div>
-                  <div>
-                    <div id="about-modal-title" class="text-lg font-semibold text-ink">LimitTrack</div>
-                    <div class="text-xs text-muted">Version 1.2.0</div>
-                  </div>
-                </div>
-                <p class="text-sm text-muted mb-5">Tracks reset times for rate-limited AI coding tool accounts (Antigravity, Codex, Claude Code, and more) across multiple emails, so you never have to check manually again.</p>
-                <div class="border-t border-line/70 pt-4 pb-4">
-                  <div class="text-xs uppercase tracking-wide text-muted mb-2">Data</div>
-                  <div class="flex flex-wrap gap-2">
-                    <button data-action="export-backup" class="inline-flex items-center gap-1.5 rounded-full bg-subtle hover:bg-line text-ink text-xs font-medium px-3 py-1.5 transition-colors">${icon("download", 13)} Export backup</button>
-                    <button data-action="trigger-import" class="inline-flex items-center gap-1.5 rounded-full bg-subtle hover:bg-line text-ink text-xs font-medium px-3 py-1.5 transition-colors">${icon("upload", 13)} Import backup</button>
-                    <input type="file" id="import-file-input" accept="application/json,.json" style="display:none;" />
-                  </div>
-                  ${pendingImport ? `<div class="mt-3 rounded-xl bg-accent-soft p-3 text-sm text-ink"><p>Replace your current ${state.accounts.length} accounts with ${pendingImport.accounts.length} accounts across ${pendingImport.providers.length} tools? A local recovery copy will be saved first.</p><div class="flex gap-2 mt-3"><button data-action="confirm-import" class="rounded-full bg-blue-600 text-white px-3 py-2 text-xs font-medium">Replace accounts</button><button data-action="cancel-import" class="rounded-full bg-surface border border-line px-3 py-2 text-xs">Cancel import</button></div></div>` : ""}
-                </div>
-                <div class="border-t border-line/70 pt-4">
-                  <div class="text-xs uppercase tracking-wide text-muted mb-2">Built by</div>
-                  <div class="text-sm font-medium text-ink">Abdul Rehman</div>
-                  <div class="text-xs text-muted mb-3">Founder &amp; CEO of Stayza · CS student at NUST</div>
-                  <div class="flex flex-wrap gap-2">
-                    <a href="https://iamabdulrehman.vercel.app" target="_blank" class="rounded-full bg-accent-soft hover:bg-accent-soft border border-blue-100 text-accent-ink text-xs font-medium px-3 py-1.5 transition-colors">Portfolio</a>
-                    <a href="https://github.com/rehmanoncloud9" target="_blank" class="rounded-full bg-subtle hover:bg-line text-ink text-xs font-medium px-3 py-1.5 transition-colors">GitHub</a>
-                    <a href="https://www.linkedin.com/in/arehman-builds" target="_blank" class="rounded-full bg-subtle hover:bg-line text-ink text-xs font-medium px-3 py-1.5 transition-colors">LinkedIn</a>
-                    <a href="mailto:relentlessrehman@gmail.com" class="rounded-full bg-subtle hover:bg-line text-ink text-xs font-medium px-3 py-1.5 transition-colors">Email</a>
-                  </div>
-                </div>
-                <button data-action="close-about" class="mt-5 w-full rounded-full bg-subtle hover:bg-line text-muted text-sm font-medium py-2 transition-all active:scale-95">Close</button>
-              </div>
-            </div>`
-          : ""
-      }
-
-      ${
-        toast
-          ? `<div role="status" aria-live="polite" style="position:fixed;left:50%;bottom:1.5rem;transform:translateX(-50%);z-index:60;" class="flex items-center gap-3 rounded-full bg-slate-900 text-white text-sm px-4 py-2.5 shadow-xl">
-               <span>${escapeHtml(toast.message)}</span>
-               ${
-                 lastDeleted
-                   ? `<button data-action="toast-undo" class="inline-flex items-center gap-1 rounded-full bg-surface/15 hover:bg-surface/25 text-white text-xs font-medium px-2.5 py-1 transition-colors">${icon("undo", 12)} Undo</button>`
-                   : ""
-               }
-             </div>`
-          : ""
-      }
-    </div>
-  `;
+  const nowMs = Date.now();
+  document.getElementById("app").innerHTML = `<div class="app-shell"><header class="topbar"><div class="brand"><img src="icon.png" alt="" /><h1>LimitTrack</h1></div><span class="local-note">Your tools, at a glance</span></header>
+    <nav class="app-nav" aria-label="Main navigation">${[["accounts", "Accounts"], ["widgets", "Widgets"], ["settings", "Settings"]].map(([value, label]) => `<button data-action="navigate" data-id="${value}" ${activeView === value ? 'aria-current="page"' : ""}>${label}</button>`).join("")}</nav>
+    ${persistenceError ? `<div role="alert" class="alert">${escapeHtml(persistenceError)}</div>` : ""}${preferencesError ? `<div role="alert" class="alert">${escapeHtml(preferencesError)}</div>` : ""}
+    <main>${activeView === "widgets" ? renderWidgets() : activeView === "settings" ? renderSettings() : renderAccounts(nowMs)}</main>
+    ${toast ? `<div role="status" aria-live="polite" class="toast"><span>${escapeHtml(toast.message)}</span>${lastDeleted ? '<button data-action="toast-undo">Undo</button>' : ""}</div>` : ""}
+    ${showAbout ? `<div class="modal-backdrop" data-action="close-about"><div class="about-dialog" id="about-modal" role="dialog" aria-modal="true" aria-labelledby="about-modal-title"><h2 id="about-modal-title">LimitTrack</h2><p>Version 1.2.1</p><p>Recorded reset times for your AI coding accounts.</p><p>Built by Abdul Rehman.</p><p><a href="https://github.com/rehmanoncloud9/limittrack" target="_blank" rel="noreferrer">View project on GitHub</a></p><div class="button-row"><button class="button" data-action="close-about">Close</button></div></div></div>` : ""}
+  </div>`;
 }
+
 
 // ---------- live tick (lightweight DOM patch, preserves input focus) ----------
 
 function tick() {
   const now = new Date();
   const nowMs = now.getTime();
+  if (activeView !== "accounts") {
+    const statuses = Object.fromEntries(state.accounts.map((a) => [a.id, getStatus(a, nowMs)]));
+    Object.assign(prevStatus, statuses);
+    updateTrayTooltip(nowMs, statuses);
+    return;
+  }
 
   const next = state.accounts.filter((a) => ["locked", "soon"].includes(getStatus(a, nowMs)))
     .sort((a, b) => effectiveTime(a, nowMs) - effectiveTime(b, nowMs))[0];
@@ -1141,14 +1017,14 @@ function tick() {
     const dotEl = document.getElementById(`dot-${acc.id}`);
     if (countdownEl) {
       countdownEl.textContent = formatCountdown(acc, nowMs);
-      countdownEl.className = `font-sans text-sm font-semibold tabular-nums ${styles.text}`;
+      countdownEl.className = `account-status status-${status}`;
     }
     if (labelEl) {
-      labelEl.textContent = styles.label;
-      labelEl.className = `text-xs ${styles.text}`;
+      labelEl.textContent = statusNote(acc, status);
+      labelEl.className = "account-status-note";
     }
     if (dotEl) {
-      dotEl.className = `h-2.5 w-2.5 rounded-full flex-shrink-0 ${styles.dot}`;
+      dotEl.className = `status-dot status-${status}`;
     }
     const progressEl = document.getElementById(`progress-${acc.id}`);
     if (progressEl) {
@@ -1160,14 +1036,14 @@ function tick() {
   const summaryEl = document.getElementById("summary-text");
   if (summaryEl) {
     const openCount = state.accounts.filter((a) => newStatuses[a.id] === "open").length;
-    summaryEl.textContent = state.accounts.length === 0 ? "Your next session, a little clearer." : `${openCount} of ${state.accounts.length} marked available`;
+    summaryEl.textContent = `${openCount} available · ${state.accounts.length} tracked`;
   }
 
   state.providers.forEach((p) => {
     const accts = state.accounts.filter((a) => a.providerId === p.id);
     const oc = accts.filter((a) => newStatuses[a.id] === "open").length;
     const el = document.getElementById(`provider-count-${p.id}`);
-    if (el) el.textContent = accts.length === 0 ? "no accounts" : `${oc}/${accts.length} marked available`;
+    if (el) el.textContent = `${accts.length} ${accts.length === 1 ? "account" : "accounts"}`;
   });
 
   updateTrayTooltip(nowMs, newStatuses);
@@ -1200,6 +1076,19 @@ function updateTrayTooltip(nowMs, statuses) {
 
 window.addEventListener("DOMContentLoaded", () => {
   attachEvents();
+  window.LimitTrackPreferences.subscribe((value) => {
+    preferences = value;
+    if (activeView !== "accounts" && !preferencesBusy) rerenderPreservingFocus();
+  });
+  window.LimitTrackPreferences.ready.then((value) => {
+    preferences = value;
+    if (activeView !== "accounts") rerenderPreservingFocus();
+  }).catch((error) => { preferencesError = "Settings could not be loaded. " + error.message; render(); });
+  window.limittrack.onWidgetConfigure(() => {
+    activeView = "widgets";
+    render();
+    document.querySelector('[data-action="navigate"][data-id="widgets"]')?.focus();
+  });
   if (window.limittrack.onStorageChanged) {
     window.limittrack.onStorageChanged((key) => {
       if (key === STORAGE_KEY) loadState(true);
@@ -1207,6 +1096,7 @@ window.addEventListener("DOMContentLoaded", () => {
   }
   if (window.limittrack.onAccountReveal) {
     window.limittrack.onAccountReveal(async (accountId) => {
+      activeView = "accounts";
       searchQuery = "";
       statusFilter = "all";
       await loadState();

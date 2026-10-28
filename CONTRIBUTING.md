@@ -24,8 +24,9 @@ The app runs straight from source, with the compiled stylesheet included. When c
 | `domain.js` | Shared validation, legacy migration, availability, and conflict-aware state merging |
 | `state-client.js` | Renderer write queue and transaction baselines |
 | `store.js` | Atomic local persistence and recovery copies |
-| `styles.input.css`, `tailwind.config.js`, `app.css` | System appearance tokens, utility generation, and bundled output |
-| `typography.css`, `assets/fonts/` | Shared Inter Variable font, native fallbacks, and font license |
+| `styles.input.css`, `tailwind.config.js`, `app.css` | Utility generation and bundled output |
+| `typography.css`, `assets/fonts/` | Native system typography, optional Inter Variable, and font license |
+| `appearance.css`, `ui.css`, `preferences.js` | Shared theme tokens, main layout, and persisted appearance/widget settings |
 | `widget.html`, `widget.js` | Floating reset overview and account actions |
 | `test/` | Node tests; Electron APIs are mocked rather than launching the user's app |
 | `build/icon.png` | Source icon used to generate platform installers |

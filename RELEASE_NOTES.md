@@ -1,25 +1,14 @@
-# LimitTrack v1.2.0
+# LimitTrack v1.2.1
 
-A clearer desktop companion for tracking your AI coding accounts and their reset times.
+A calmer interface with visible widget setup and appearance controls.
 
-## New and improved
+- Separate Accounts, Widgets, and Settings screens make common tasks easier to find.
+- Native system typography is the default, with simpler sizing and spacing. Optional bundled Inter is available in Settings.
+- Choose System, Light, or Dark in Settings. Theme and font choices persist and apply to the desktop widget too.
+- Configure the widget from Widgets: choose one tool or All tools, then enable Show desktop widget. Drag its header to move it; closing it hides it. Its Configure button returns to setup.
+- Account rows show their email, status, and one main action. More contains secondary actions and Details reveals timestamps when needed.
+- Add accounts inside a tool section without selecting the tool repeatedly. Search, filters, reset editing, undo, and backup/restore remain available.
 
-- Add accounts directly inside a tool section, with the tool already selected. Add several accounts in succession without repeating tool selection.
-- Configure the floating widget for All tools or one specific tool. The choice is remembered, and its account list, availability count, and next reset stay scoped to that tool.
-- Refined typography with locally bundled Inter Variable, clearer headings, larger labels, and stable countdown numerals.
-- System light/dark appearance and offline styles, with reduced-motion support.
-- Honest availability states: Not checked, Marked available, Waiting, and Expected ready. Recorded reset times are distinguished from estimates.
-- Search by tool or account, filter by status, and undo individual limit, confirmation, and reset-time changes.
-- Widget navigation opens the relevant account; changes refresh across both windows.
-- Main-process reset notifications reconcile after sleep and restart, with persisted delivery records to prevent repeated alerts.
-- Validated, conflict-aware saves, atomic local persistence, recovery copies, and backup import previews with a pre-import recovery copy.
+Windows: use the Setup executable to install, or the other executable for the portable app. macOS: use the DMG. Linux: use the AppImage or DEB.
 
-## Downloads
-
-- Windows: choose the **Setup** executable for the installer, or the other Windows executable for the portable app.
-- macOS: use the `.dmg` image.
-- Linux: use the `.AppImage` or `.deb` package.
-
-The application remains local-only and does not connect to provider accounts or measure remaining quota. Newly added accounts start as Not checked. A timer reaching zero means Expected ready; confirm availability in the provider's tool.
-
-Notifications require the app to be running and may be suppressed by operating-system settings. Installers are unsigned; Windows SmartScreen or macOS Gatekeeper may show a warning.
+Data remains local. Reset times are recorded or estimated; LimitTrack does not measure provider quota. Notifications require the app to be running. Installers are unsigned.

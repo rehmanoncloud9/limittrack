@@ -4,47 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LimitTrack Widget</title>
-    <link rel="preload" href="assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="typography.css" />
+    <link rel="stylesheet" href="appearance.css" />
     <style>
       :root {
-        --accent: #265dcc;
-        --green: #24845b;
-        --amber: #a46717;
-        --gray: #9ca3af;
-
-        --panel-bg: rgba(250, 250, 252, 0.97);
-        --panel-border: rgba(15, 23, 42, 0.08);
-        --panel-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
-        --text-primary: #0f172a;
-        --text-secondary: #616875;
-        --row-bg: rgba(255, 255, 255, 0.5);
-        --row-bg-hover: rgba(255, 255, 255, 0.92);
-        --row-open-bg: rgba(34, 197, 94, 0.05);
-        --row-open-bg-hover: rgba(34, 197, 94, 0.1);
-        --divider: rgba(15, 23, 42, 0.06);
-        --btn-bg: rgba(15, 23, 42, 0.06);
-        --btn-bg-hover: rgba(15, 23, 42, 0.12);
-      }
-
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --panel-bg: rgba(30, 32, 38, 0.97);
-          --panel-border: rgba(255, 255, 255, 0.09);
-          --panel-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-          --text-primary: rgba(255, 255, 255, 0.94);
-          --text-secondary: #a9afb9;
-          --green: #70d6a4;
-          --amber: #efbd70;
-          --accent: #91baff;
-          --row-bg: rgba(255, 255, 255, 0.04);
-          --row-bg-hover: rgba(255, 255, 255, 0.09);
-          --row-open-bg: rgba(34, 197, 94, 0.07);
-          --row-open-bg-hover: rgba(34, 197, 94, 0.12);
-          --divider: rgba(255, 255, 255, 0.07);
-          --btn-bg: rgba(255, 255, 255, 0.08);
-          --btn-bg-hover: rgba(255, 255, 255, 0.16);
-        }
+        --accent: rgb(var(--accent-ink)); --green: rgb(var(--success)); --amber: rgb(var(--warning)); --gray: rgb(var(--muted));
+        --panel-bg: rgb(var(--surface) / 0.98); --panel-border: rgb(var(--line));
+        --panel-shadow: 0 4px 14px #0002; --text-primary: rgb(var(--ink)); --text-secondary: rgb(var(--muted));
+        --row-bg: transparent; --row-bg-hover: rgb(var(--subtle));
+        --row-open-bg: transparent; --row-open-bg-hover: rgb(var(--subtle));
+        --divider: rgb(var(--line)); --btn-bg: rgb(var(--subtle)); --btn-bg-hover: rgb(var(--line));
       }
 
       * {
@@ -76,7 +45,7 @@
         width: 100%;
         max-width: 288px;
         max-height: 544px;
-        border-radius: 24px;
+        border-radius: 18px;
         background: var(--panel-bg);
         border: 1px solid var(--panel-border);
         box-shadow: var(--panel-shadow);
@@ -116,15 +85,18 @@
         font-size: 14px;
         font-weight: 600;
         color: var(--text-primary);
-        letter-spacing: -0.02em;
+        letter-spacing: normal;
         flex: 1;
         min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
       }
 
       #header .summary {
         font-size: 12px;
         color: var(--text-secondary);
-        font-weight: 450;
+        font-weight: 400;
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
       }
@@ -195,14 +167,14 @@
 
       .avatar {
         position: relative;
-        width: 32px;
-        height: 32px;
+        width: 24px;
+        height: 24px;
         border-radius: 999px;
         flex-shrink: 0;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 13px;
+        font-size: 11px;
         font-weight: 600;
         color: #fff;
       }
@@ -236,7 +208,7 @@
         font-size: 14px;
         font-weight: 600;
         line-height: 1.4;
-        letter-spacing: -0.015em;
+        letter-spacing: normal;
         color: var(--text-primary);
         white-space: nowrap;
         overflow: hidden;
@@ -246,7 +218,7 @@
         font-size: 12.5px;
         font-weight: 400;
         line-height: 1.45;
-        letter-spacing: -0.005em;
+        letter-spacing: normal;
         color: var(--text-secondary);
         white-space: nowrap;
         overflow: hidden;
@@ -265,7 +237,7 @@
         font-variant-numeric: tabular-nums;
         font-size: 13px;
         font-weight: 600;
-        letter-spacing: -0.02em;
+        letter-spacing: normal;
         white-space: nowrap;
       }
       .countdown.open {
@@ -285,7 +257,7 @@
         background: var(--btn-bg);
         color: var(--text-primary);
         font-size: 12px;
-        font-weight: 550;
+        font-weight: 500;
         line-height: 1.35;
         padding: 8px 10px;
         cursor: pointer;
@@ -311,7 +283,7 @@
         background: transparent;
         color: var(--accent);
         font-size: 12.5px;
-        font-weight: 550;
+        font-weight: 500;
         padding: 6px 0 0;
         cursor: pointer;
         text-align: center;
@@ -343,7 +315,7 @@
         background: var(--accent);
         color: #fff;
         font-size: 13px;
-        font-weight: 550;
+        font-weight: 500;
         padding: 7px 14px;
         cursor: pointer;
       }
@@ -356,15 +328,15 @@
         color: var(--text-secondary);
         font-size: 11px;
         font-weight: 600;
-        letter-spacing: 0.075em;
-        text-transform: uppercase;
+        letter-spacing: normal;
+        text-transform: none;
       }
       #hero-value {
         margin: 8px 0;
-        font-size: 40px;
+        font-size: 32px;
         line-height: 1.1;
-        font-weight: 550;
-        letter-spacing: -0.045em;
+        font-weight: 500;
+        letter-spacing: -0.01em;
         font-variant-numeric: tabular-nums;
       }
       #hero-detail, #hero-time {
@@ -374,11 +346,8 @@
         overflow-wrap: anywhere;
       }
       #hero-time { margin-top: 2px; }
-      #tool-config { display: flex; align-items: center; gap: 10px; padding: 12px 16px 0; color: var(--text-secondary); font-size: 13px; }
-      #tool-select { flex: 1; min-width: 0; border: 1px solid var(--panel-border); border-radius: 10px; padding: 7px 10px; background: var(--btn-bg); color: var(--text-primary); font: inherit; cursor: pointer; color-scheme: light dark; }
-      #tool-select option { background: var(--panel-bg); color: var(--text-primary); }
       #save-error { margin: 12px; padding: 10px; border-radius: 12px; background: #fff1f2; color: #9f1239; font-size: 13px; }
-      #undo-change { margin: 4px 14px 12px; border: 0; border-radius: 12px; padding: 9px 12px; color: var(--accent); background: var(--btn-bg); cursor: pointer; font: inherit; font-size: 13px; font-weight: 550; }
+      #undo-change { margin: 4px 14px 12px; border: 0; border-radius: 12px; padding: 9px 12px; color: var(--accent); background: var(--btn-bg); cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; }
       .row:focus-within { background: var(--row-bg-hover); }
       .row-detail {
         flex: 1;
@@ -413,18 +382,14 @@
         <img src="icon.png" alt="" />
         <div class="title">LimitTrack</div>
         <div class="summary" id="summary-text"></div>
-        <button class="icon-btn" id="open-main-btn" title="Open LimitTrack" aria-label="Open LimitTrack">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7" /><path d="M7 7h10v10" /></svg>
+        <button class="icon-btn" id="open-main-btn" title="Configure widget" aria-label="Configure widget">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h7m6 0h3M4 17h3m6 0h7"/><circle cx="14" cy="7" r="3"/><circle cx="10" cy="17" r="3"/></svg>
         </button>
         <button class="icon-btn" id="hide-widget-btn" title="Hide widget" aria-label="Hide widget">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18" /><path d="M6 6l12 12" /></svg>
         </button>
       </div>
       <div id="divider"></div>
-      <div id="tool-config">
-        <label for="tool-select">Show</label>
-        <select id="tool-select" aria-label="Widget tool" disabled><option value="">All tools</option></select>
-      </div>
       <div id="save-error" role="alert" hidden></div>
       <section id="hero" aria-label="Reset overview" hidden>
         <div id="hero-label"></div>
@@ -437,6 +402,7 @@
       <button id="undo-change" hidden>Undo last change</button>
       <div id="empty" style="display: none"></div>
     </div>
+    <script src="preferences.js"></script>
     <script src="domain.js"></script>
     <script src="state-client.js"></script>
     <script src="widget.js"></script>

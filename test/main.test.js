@@ -8,10 +8,12 @@ const vm = require("node:vm");
 const D = require("../domain");
 
 async function harness(t, data) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "limittrack-main-"));
+  const temporaryRoot = process.env.LIMITTRACK_TEST_TMP || os.tmpdir();
+  fs.mkdirSync(temporaryRoot, { recursive: true });
+  const directory = fs.mkdtempSync(path.join(temporaryRoot, "limittrack-main-"));
   t.after(() => {
     const resolved = fs.realpathSync(directory);
-    assert.equal(path.dirname(resolved).toLowerCase(), fs.realpathSync(os.tmpdir()).toLowerCase());
+    assert.equal(path.dirname(resolved).toLowerCase(), fs.realpathSync(temporaryRoot).toLowerCase());
     assert.ok(path.basename(resolved).startsWith("limittrack-main-"));
     fs.rmSync(resolved, { recursive: true, force: true });
   });
@@ -122,4 +124,48 @@ test("widget tool configuration persists, validates choices, and falls back when
   set(app.event(), { providerId: "claude" });
   set(app.event(), { providerId: null });
   assert.equal(get(app.event()).providerId, null);
+});
+
+test("appearance settings persist, merge independent updates, and reject invalid input", async (t) => {
+  const app = await harness(t, dataWithTimer());
+  const get = app.handlers.get("preferences:get"), update = app.handlers.get("preferences:update");
+  assert.equal(get(app.event()).theme, "system");
+  assert.equal(get(app.event()).font, "system");
+  const accountsBefore = app.data()[D.STORAGE_KEY];
+  update(app.event(), { theme: "dark" });
+  update(app.event(), { font: "inter" });
+  update(app.event(), { widgetProviderId: "codex" });
+  assert.equal(get(app.event()).theme, "dark");
+  assert.equal(get(app.event()).font, "inter");
+  assert.equal(get(app.event()).widgetProviderId, "codex");
+  assert.equal(app.data()[D.STORAGE_KEY], accountsBefore);
+  const saved = JSON.stringify(app.data());
+  for (const patch of [{ theme: "neon" }, { font: "unknown" }, { widgetVisible: "yes" }, { widgetProviderId: "missing" }, { arbitrary: true }]) {
+    assert.throws(() => update(app.event(), patch));
+    assert.equal(JSON.stringify(app.data()), saved);
+  }
+  const restarted = await harness(t, app.data());
+  assert.equal(restarted.handlers.get("preferences:get")(restarted.event()).theme, "dark");
+  assert.equal(restarted.handlers.get("preferences:get")(restarted.event()).font, "inter");
+});
+
+test("widget setup controls visibility, handles hide-before-load, and opens widget configuration", async (t) => {
+  const app = await harness(t, dataWithTimer());
+  const update = app.handlers.get("preferences:update"), get = app.handlers.get("preferences:get");
+  update(app.event(), { widgetVisible: true, widgetProviderId: "codex" });
+  assert.equal(get(app.event()).widgetVisible, true);
+  const widget = app.windows[1];
+  assert.ok(widget);
+  update(app.event(), { widgetVisible: false });
+  widget.webContents.emit("did-finish-load");
+  widget.emit("ready-to-show");
+  assert.equal(widget.visible, false);
+  update(app.event(), { widgetVisible: true });
+  assert.equal(widget.visible, true);
+  const event = { sender: widget.webContents, senderFrame: widget.webContents.mainFrame };
+  app.ipcMain.emit("widget:open-settings", event);
+  assert.equal(app.windows[0].sent[0], "widgets:configure");
+  app.ipcMain.emit("widget:hide", event);
+  assert.equal(get(app.event()).widgetVisible, false);
+  assert.equal(widget.visible, false);
 });

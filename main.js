@@ -8,6 +8,7 @@ const localStore = createStore(STORE_PATH);
 const WIDGET_BOUNDS_KEY = "limittrack-widget-bounds";
 const WIDGET_VISIBLE_KEY = "limittrack-widget-visible";
 const WIDGET_PROVIDER_KEY = "limittrack-widget-provider";
+const PREFERENCES_KEY = "limittrack-preferences";
 const WIDGET_WIDTH = 304;
 const WIDGET_MIN_HEIGHT = 88;
 const WIDGET_MAX_HEIGHT = 560;
@@ -42,7 +43,25 @@ function showAccount(accountId) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.show();
   mainWindow.focus();
-  if (typeof accountId === "string") mainWindow.webContents.send("account:reveal", accountId);
+  mainWindow.webContents.send("account:reveal", typeof accountId === "string" ? accountId : null);
+}
+
+function getPreferences(data = readStore()) {
+  const saved = data[PREFERENCES_KEY] || {};
+  const providerId = data[WIDGET_PROVIDER_KEY];
+  return {
+    theme: ["system", "light", "dark"].includes(saved.theme) ? saved.theme : "system",
+    font: ["system", "inter"].includes(saved.font) ? saved.font : "system",
+    widgetVisible: !!data[WIDGET_VISIBLE_KEY],
+    widgetProviderId: accountState(data).providers.some((p) => p.id === providerId) ? providerId : null,
+  };
+}
+
+function broadcastPreferences() {
+  const preferences = getPreferences();
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send("preferences:changed", preferences);
+  }
 }
 
 function reconcileResets() {
@@ -252,11 +271,13 @@ function createWidgetWindow() {
   });
 }
 
-function setWidgetVisible(visible) {
+function setWidgetVisible(visible, persist = true) {
   try {
-    const store = readStore();
-    store[WIDGET_VISIBLE_KEY] = visible;
-    writeStore(store);
+    if (persist) {
+      const store = readStore();
+      store[WIDGET_VISIBLE_KEY] = visible;
+      writeStore(store);
+    }
     widgetVisible = visible;
   } catch (error) {
     if (widgetMenuItem) widgetMenuItem.checked = widgetVisible;
@@ -271,7 +292,7 @@ function setWidgetVisible(visible) {
       // otherwise the ready-to-show handler above will show it.
       if (widgetWindow && !widgetWindow.isVisible()) {
         widgetWindow.webContents.once("did-finish-load", () => {
-          if (widgetWindow) widgetWindow.show();
+          if (widgetWindow && widgetVisible) widgetWindow.show();
         });
       }
     } else {
@@ -282,6 +303,7 @@ function setWidgetVisible(visible) {
   }
 
   if (widgetMenuItem) widgetMenuItem.checked = visible;
+  broadcastPreferences();
 }
 
 app.whenReady().then(() => {
@@ -333,6 +355,7 @@ ipcMain.handle("state:commit", (event, base, next, options) => {
   data[Domain.STORAGE_KEY] = JSON.stringify(merged);
   writeStore(data);
   broadcastState(event.sender.id);
+  broadcastPreferences();
   reconcileResets();
   return merged;
 });
@@ -353,7 +376,31 @@ ipcMain.handle("widget:config-set", (event, config) => {
   }
   data[WIDGET_PROVIDER_KEY] = providerId;
   writeStore(data);
+  broadcastPreferences();
   return { providerId };
+});
+
+ipcMain.handle("preferences:get", (event) => {
+  if (!trustedSender(event)) throw new Error("Unknown window.");
+  return getPreferences();
+});
+
+ipcMain.handle("preferences:update", (event, patch) => {
+  if (!trustedSender(event)) throw new Error("Unknown window.");
+  if (!patch || typeof patch !== "object" || Array.isArray(patch) || Object.keys(patch).some((key) => !["theme", "font", "widgetVisible", "widgetProviderId"].includes(key))) throw new Error("Invalid settings.");
+  if ("theme" in patch && !["system", "light", "dark"].includes(patch.theme)) throw new Error("Choose System, Light, or Dark.");
+  if ("font" in patch && !["system", "inter"].includes(patch.font)) throw new Error("Choose System or Inter.");
+  if ("widgetVisible" in patch && typeof patch.widgetVisible !== "boolean") throw new Error("Invalid widget visibility.");
+  const data = readStore();
+  if ("widgetProviderId" in patch && patch.widgetProviderId !== null && !accountState(data).providers.some((p) => p.id === patch.widgetProviderId)) throw new Error("Choose an existing tool or All tools.");
+  const next = { ...getPreferences(data), ...patch };
+  data[PREFERENCES_KEY] = { theme: next.theme, font: next.font };
+  data[WIDGET_PROVIDER_KEY] = next.widgetProviderId;
+  data[WIDGET_VISIBLE_KEY] = next.widgetVisible;
+  writeStore(data);
+  if ("widgetVisible" in patch) setWidgetVisible(next.widgetVisible, false);
+  else broadcastPreferences();
+  return getPreferences();
 });
 
 // Live tray tooltip, updated once a second by the renderer's tick loop so
@@ -386,4 +433,12 @@ ipcMain.on("widget:hide", (event) => {
 
 ipcMain.on("widget:open-main", (event, accountId) => {
   if (trustedSender(event)) showAccount(accountId);
+});
+
+ipcMain.on("widget:open-settings", (event) => {
+  if (!trustedSender(event)) return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.webContents.send("widgets:configure");
 });

@@ -2,41 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: light dark;
-  --canvas: 247 248 250;
-  --surface: 255 255 255;
-  --subtle: 240 242 245;
-  --ink: 27 32 41;
-  --muted: 95 104 119;
-  --line: 222 226 232;
-  --accent-soft: 235 242 255;
-  --accent-ink: 35 90 180;
-  --success: 30 118 77;
-  --success-soft: 234 247 239;
-  --warning: 156 90 17;
-  --danger: 177 36 60;
-  --danger-soft: 255 239 242;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --canvas: 22 24 29;
-    --surface: 31 34 41;
-    --subtle: 41 45 54;
-    --ink: 239 241 245;
-    --muted: 168 177 191;
-    --line: 62 68 80;
-    --accent-soft: 32 49 76;
-    --accent-ink: 151 192 255;
-    --success: 117 216 166;
-    --success-soft: 28 58 44;
-    --warning: 241 191 111;
-    --danger: 255 161 177;
-    --danger-soft: 68 32 43;
-  }
-}
-
 html, body { margin: 0; min-height: 100%; background: rgb(var(--canvas)); color: rgb(var(--ink)); }
 body { font-family: var(--font-ui); }
 button, input, select { font: inherit; }

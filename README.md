@@ -24,16 +24,22 @@ If you juggle multiple email accounts across AI coding tools like **Antigravity*
 - **Multi-tool, multi-account:** track as many email accounts as you want, across as many tools as you want, each with its own reset cycle
 - **Add accounts in context:** add directly inside a tool section with the tool already selected; use "Add & add another" to enter several accounts in succession
 - **Floating reset overview:** keep the next estimated reset visible alongside a compact account list, with light/dark appearance and reduced-motion support
-- **Tool-specific widget:** choose All tools or one tool in the widget's Show selector; your choice is remembered, and its accounts, counts, and next reset stay scoped to that tool
+- **Tool-specific widget:** open Widgets, choose All tools or one tool, then turn on Show desktop widget. Your choice is remembered across restarts
 - **Quick limit logging:** click "Log limit" to start an estimated reset countdown, with undo for accidental changes
 - **Honest status:** distinguish accounts you marked available, elapsed reset timers, active cooldowns, and accounts you have not checked
 - **Search and status filters:** find accounts by tool or email and focus on available, waiting, expected-ready, or unchecked accounts
 - **Manual override:** already know the exact reset time? Set it directly instead of computing it from "now"
 - **Desktop notifications:** get an alert when recorded reset times pass while the app is running, with catch-up after sleep or restart and persistent deduplication
-- **Light and dark appearance:** follows your system, with locally bundled styles that work offline and reduced-motion support
+- **Appearance settings:** choose System, Light, or Dark in Settings; use native system typography by default or choose bundled Inter. Appearance applies to both windows
 - **Safer local data:** validated imports with a replacement preview, atomic saves, recovery copies, and conflict detection between windows
 - **System tray:** closing the window just minimizes it; LimitTrack keeps tracking behind the scenes
 - **100% local:** everything is saved to a local file on your machine, nothing is sent anywhere
+
+## Find your way around
+
+- **Accounts:** add an account inside its tool section. Each row shows its status and one main action; use the More menu for details and additional actions.
+- **Widgets:** choose the tool to display and enable **Show desktop widget**. Drag the widget header to move it. Closing it hides it; enable it here to bring it back. The widget's Configure button opens this page.
+- **Settings:** change **Theme** and **Font**, or export and restore backups. Choices are saved locally.
 
 ## Download
 

@@ -6,10 +6,12 @@ const path = require("node:path");
 const { createStore } = require("../store");
 
 function temporary(t) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "limittrack-store-"));
+  const temporaryRoot = process.env.LIMITTRACK_TEST_TMP || os.tmpdir();
+  fs.mkdirSync(temporaryRoot, { recursive: true });
+  const directory = fs.mkdtempSync(path.join(temporaryRoot, "limittrack-store-"));
   t.after(() => {
     const resolved = fs.realpathSync(directory);
-    assert.equal(path.dirname(resolved).toLowerCase(), fs.realpathSync(os.tmpdir()).toLowerCase());
+    assert.equal(path.dirname(resolved).toLowerCase(), fs.realpathSync(temporaryRoot).toLowerCase());
     assert.ok(path.basename(resolved).startsWith("limittrack-store-"));
     fs.rmSync(resolved, { recursive: true, force: true });
   });

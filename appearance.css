@@ -1,0 +1,26 @@
+:root {
+  color-scheme: light;
+  --canvas: 247 248 250; --surface: 255 255 255; --subtle: 240 242 245;
+  --ink: 30 34 41; --muted: 99 107 119; --line: 225 228 233;
+  --accent-soft: 237 243 253; --accent-ink: 36 88 175;
+  --success: 33 119 77; --success-soft: 234 247 239;
+  --warning: 155 94 26; --danger: 177 36 60; --danger-soft: 255 239 242;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --canvas: 24 26 30; --surface: 31 34 39; --subtle: 42 46 52;
+    --ink: 235 238 242; --muted: 166 174 187; --line: 60 66 76;
+    --accent-soft: 33 49 72; --accent-ink: 153 191 249;
+    --success: 116 210 163; --success-soft: 28 56 43;
+    --warning: 235 187 116; --danger: 255 161 177; --danger-soft: 68 32 43;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: 24 26 30; --surface: 31 34 39; --subtle: 42 46 52;
+  --ink: 235 238 242; --muted: 166 174 187; --line: 60 66 76;
+  --accent-soft: 33 49 72; --accent-ink: 153 191 249;
+  --success: 116 210 163; --success-soft: 28 56 43;
+  --warning: 235 187 116; --danger: 255 161 177; --danger-soft: 68 32 43;
+}

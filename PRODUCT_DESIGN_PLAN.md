@@ -6,7 +6,9 @@ Implementation update: account creation now lives inside each tool section, with
 
 The widget also supports a persisted All tools / single-tool selection, applied to its account list, availability count, next reset, and overflow count. A removed tool falls back to All tools, while an empty tool shows its own empty state.
 
-The broader roadmap below remains a design target. Multiple limit windows, account label editing, pinning, privacy mode, dedicated Settings, configurable notification controls, and alternative widget sizes are still planned. Verification includes Node tests and disposable browser fixtures; actual native notification delivery and packaged cross-platform behavior require a separate platform check.
+The broader roadmap below remains a design target. Multiple limit windows, account label editing, pinning, privacy mode, configurable notification controls, and alternative widget sizes are still planned. Verification includes Node tests and disposable browser fixtures; actual native notification delivery and packaged cross-platform behavior require a separate platform check.
+
+October 28 usability update: Accounts, Widgets, and Settings navigation replaces the crowded single screen. Widgets has a tool selector and visibility switch; its Configure action opens setup. Settings persists System/Light/Dark themes and System/Inter fonts across both windows. Native system typography is the default. Rows show one primary action; More and Details reveal secondary actions and timestamps. Backup controls live in Settings.
 
 ## Product direction
 
@@ -54,7 +56,7 @@ Reviewed README.md, package.json, main.js, preload.js, renderer.js, widget.html,
 
 ## Experience architecture
 
-Keep navigation small: **Overview**, **Accounts**, and **Settings**. Put recent activity inside account details initially; it does not need a separate destination.
+Keep navigation small: **Accounts**, **Widgets**, and **Settings**. Keep the overview inside Accounts. Put recent activity inside account details initially; it does not need a separate destination.
 
 ### Overview
 
@@ -132,7 +134,7 @@ Use one selected layout at first. Multiple simultaneous widgets are deferred unt
 - Warm neutral canvas, near-white light surfaces, charcoal dark surfaces, and one blue interaction accent.
 - Green indicates user-confirmed availability; amber indicates an approaching reset; neutral tones indicate waiting or unknown states. Always pair color with text or a symbol.
 - Start with a 4/8/12/16/24 spacing scale, 20–24 px widget corners, and 16 px internal padding.
-- Use locally bundled Inter Variable across the app and widget, with Apple system and Segoe UI fallbacks. Share the family and rendering rules through typography.css; use a 13 px caption floor in the main app, 14–18 px account/tool headings, a 32 px app title, and a 40 px widget countdown. Use tabular numerals without monospace status text.
+- Use native system typography by default, with bundled Inter Variable as an optional setting. Share the family and rendering rules through typography.css; use a 13 px caption floor in the main app, 14–18 px account/tool headings, a 24 px page title, and a 32 px widget countdown. Use tabular numerals without monospace status text.
 - Use 40 px widget countdown numerals with tabular figures, 14 px account names, and readable secondary text around 13 px. Keep small uppercase section labels restrained at 11 px.
 - Use a thin boundary and one soft shadow. Keep translucency subtle and provide an opaque option; actual desktop blur requires platform verification.
 - Use consistent line icons and stable provider colors. Keep branding secondary to status.

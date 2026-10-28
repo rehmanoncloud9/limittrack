@@ -17,6 +17,19 @@ contextBridge.exposeInMainWorld("limittrack", {
   widgetConfigGet: () => ipcRenderer.invoke("widget:config-get"),
   widgetConfigSet: (config) => ipcRenderer.invoke("widget:config-set", config),
   widgetOpenMain: (accountId) => ipcRenderer.send("widget:open-main", accountId),
+  preferencesGet: () => ipcRenderer.invoke("preferences:get"),
+  preferencesUpdate: (patch) => ipcRenderer.invoke("preferences:update", patch),
+  onPreferencesChanged: (callback) => {
+    const listener = (event, value) => callback(value);
+    ipcRenderer.on("preferences:changed", listener);
+    return () => ipcRenderer.removeListener("preferences:changed", listener);
+  },
+  widgetOpenSettings: () => ipcRenderer.send("widget:open-settings"),
+  onWidgetConfigure: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("widgets:configure", listener);
+    return () => ipcRenderer.removeListener("widgets:configure", listener);
+  },
   onAccountReveal: (callback) => {
     const listener = (event, accountId) => callback(accountId);
     ipcRenderer.on("account:reveal", listener);

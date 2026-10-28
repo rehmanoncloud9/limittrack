@@ -3,10 +3,7 @@
 const { STORAGE_KEY, DEFAULT_STATE, getStatus, effectiveTime } = window.LimitTrackDomain;
 const dataClient = window.createLimitTrackClient(window.limittrack);
 let persistenceError = "";
-let configError = "";
 let selectedProviderId = null;
-let configSaving = false;
-let renderedToolOptions = "";
 const MAX_VISIBLE_ROWS = 3;
 
 let state = JSON.parse(JSON.stringify(DEFAULT_STATE));
@@ -23,6 +20,11 @@ function normalizeUnit(unit) {
 function cycleToMs(value, unit) {
   const v = Number(value) || 0;
   return normalizeUnit(unit) === "hours" ? v * 3600000 : v * 86400000;
+}
+
+function widgetStatusLabel(account, nowMs) {
+  const status = getStatus(account, nowMs);
+  return status === "open" ? "Available" : status === "ready" ? "Expected ready" : status === "unknown" ? "Not checked" : account.resetSource === "exact" ? "Recorded reset" : "Estimated reset";
 }
 
 function formatCountdown(acc, nowMs) {
@@ -91,31 +93,6 @@ async function saveState() {
 
 function scopedAccounts() {
   return selectedProviderId ? state.accounts.filter((a) => a.providerId === selectedProviderId) : state.accounts;
-}
-
-async function configureTool(providerId) {
-  if (configSaving) return;
-  configSaving = true;
-  configError = "";
-  document.getElementById("tool-select").disabled = true;
-  try {
-    const config = await window.limittrack.widgetConfigSet({ providerId: providerId || null });
-    selectedProviderId = config.providerId;
-    undoChange = null;
-    renderedRowIds = null;
-  } catch (error) { configError = "Tool choice was not saved. " + error.message; }
-  finally { configSaving = false; renderAll(); }
-}
-
-function renderToolConfig() {
-  const select = document.getElementById("tool-select");
-  const signature = JSON.stringify(state.providers.map((p) => [p.id, p.name]));
-  if (signature !== renderedToolOptions) {
-    select.innerHTML = `<option value="">All tools</option>` + state.providers.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join("");
-    renderedToolOptions = signature;
-  }
-  select.value = selectedProviderId || "";
-  select.disabled = configSaving;
 }
 
 function markHit(id) {
@@ -193,8 +170,8 @@ function rowSkeleton(acc, provider) {
       <span class="status-dot" data-role="dot"></span>
     </div>
     <div class="row-text">
-      <div class="row-name">${escapeHtml(provider ? provider.name : "Unknown")}</div>
-      <div class="row-sub">${escapeHtml(acc.email)}</div>
+      <div class="row-name">${escapeHtml(selectedProviderId ? acc.email : provider ? provider.name : "Unknown")}</div>
+      <div class="row-sub">${escapeHtml(selectedProviderId ? widgetStatusLabel(acc, Date.now()) : acc.email)}</div>
     </div>
     </button>
     <div class="row-right" data-role="right">
@@ -226,7 +203,7 @@ function updateHero(nowMs) {
   document.getElementById("hero-value").textContent = next ? formatCountdown(next, nowMs) : available ? `${available} available` : expected ? "Check status" : "Not checked";
   const provider = next && state.providers.find((p) => p.id === next.providerId);
   document.getElementById("hero-detail").textContent = next
-    ? `${provider ? provider.name : "Account"} · ${next.email}`
+    ? selectedProviderId ? next.email : `${provider ? provider.name : "Account"} · ${next.email}`
     : expected ? `${expected} reset times passed. Check the tool, then confirm.` : available ? "Marked available by you. No active timers." : "Check your tool, then mark an account available.";
   document.getElementById("hero-time").textContent = next
     ? new Date(next.resetAt).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit", timeZoneName: "short" })
@@ -236,14 +213,16 @@ function updateHero(nowMs) {
 function renderAll() {
   const nowMs = Date.now();
   const accounts = scopedAccounts();
-  renderToolConfig();
+  const title = document.querySelector("#header .title");
+  title.textContent = state.providers.find((p) => p.id === selectedProviderId)?.name || "LimitTrack";
+  title.title = title.textContent;
   const rowsEl = document.getElementById("rows");
   const footerEl = document.getElementById("footer");
   const emptyEl = document.getElementById("empty");
   const summaryEl = document.getElementById("summary-text");
   const errorEl = document.getElementById("save-error");
-  errorEl.hidden = !persistenceError && !configError;
-  errorEl.textContent = [persistenceError, configError].filter(Boolean).join(" ");
+  errorEl.hidden = !persistenceError;
+  errorEl.textContent = persistenceError;
   document.getElementById("undo-change").hidden = !undoChange || nowMs >= undoUntil;
   updateHero(nowMs);
 
@@ -281,9 +260,9 @@ function renderAll() {
   }
 
   const remaining = accounts.length - visible.length;
-  footerEl.style.display = remaining > 0 ? "block" : "none";
-  if (remaining > 0) {
-    footerEl.innerHTML = `<button id="more-btn">+${remaining} more in LimitTrack</button>`;
+  footerEl.style.display = "block";
+  {
+    footerEl.innerHTML = `<button id="more-btn">${remaining > 0 ? `View all ${accounts.length} accounts` : "Open accounts"}</button>`;
     document.getElementById("more-btn").addEventListener("click", () => window.limittrack.widgetOpenMain());
   }
 
@@ -299,6 +278,7 @@ function updateTick(nowMs, visible) {
     const row = [...document.querySelectorAll(".row")].find((el) => el.dataset.id === acc.id);
     if (!row) return;
     const status = getStatus(acc, nowMs);
+    if (selectedProviderId) row.querySelector(".row-sub").textContent = widgetStatusLabel(acc, nowMs);
     row.classList.toggle("is-open", status === "open");
 
     const dot = row.querySelector('[data-role="dot"]');
@@ -363,10 +343,16 @@ function requestResize() {
 // ---------- init ----------
 
 window.addEventListener("DOMContentLoaded", () => {
-  document.getElementById("open-main-btn").addEventListener("click", () => window.limittrack.widgetOpenMain());
+  document.getElementById("open-main-btn").addEventListener("click", () => window.limittrack.widgetOpenSettings());
   document.getElementById("hide-widget-btn").addEventListener("click", () => window.limittrack.widgetHide());
   document.getElementById("undo-change").addEventListener("click", undoLastChange);
-  document.getElementById("tool-select").addEventListener("change", (event) => configureTool(event.target.value));
+  window.LimitTrackPreferences.subscribe((value) => {
+    selectedProviderId = value.widgetProviderId;
+    renderedRowIds = null;
+    renderAll();
+    document.fonts.ready.then(requestResize);
+  });
+  window.LimitTrackPreferences.ready.catch((error) => { persistenceError = "Settings could not be loaded. " + error.message; renderAll(); });
 
   if (window.limittrack && window.limittrack.onStorageChanged) {
     window.limittrack.onStorageChanged((key) => {
@@ -376,5 +362,6 @@ window.addEventListener("DOMContentLoaded", () => {
 
   loadState();
   document.fonts.ready.then(requestResize);
+  document.fonts.addEventListener("loadingdone", requestResize);
   setInterval(tick, 1000);
 });

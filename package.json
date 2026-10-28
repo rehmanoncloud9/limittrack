@@ -1,6 +1,6 @@
 {
   "name": "limittrack",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Track reset times for rate-limited coding tool accounts (Antigravity, Codex, Claude Code, and more) across multiple emails, with live countdowns and native desktop notifications.",
   "main": "main.js",
   "scripts": {
@@ -50,6 +50,9 @@
       "store.js",
       "app.css",
       "typography.css",
+      "appearance.css",
+      "preferences.js",
+      "ui.css",
       "assets/fonts/**/*",
       "index.html",
       "widget.html",
