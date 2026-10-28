@@ -4,43 +4,46 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LimitTrack Widget</title>
+    <link rel="preload" href="assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="typography.css" />
     <style>
       :root {
-        --accent: #3b82f6;
-        --green: #22c55e;
-        --amber: #f59e0b;
+        --accent: #265dcc;
+        --green: #24845b;
+        --amber: #a46717;
         --gray: #9ca3af;
 
-        --panel-bg: rgba(255, 255, 255, 0.86);
+        --panel-bg: rgba(250, 250, 252, 0.97);
         --panel-border: rgba(15, 23, 42, 0.08);
-        --panel-shadow: 0 18px 44px rgba(15, 23, 42, 0.22), 0 2px 8px rgba(15, 23, 42, 0.12);
+        --panel-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
         --text-primary: #0f172a;
-        --text-secondary: rgba(15, 23, 42, 0.56);
+        --text-secondary: #616875;
         --row-bg: rgba(255, 255, 255, 0.5);
         --row-bg-hover: rgba(255, 255, 255, 0.92);
-        --row-open-bg: rgba(34, 197, 94, 0.1);
-        --row-open-bg-hover: rgba(34, 197, 94, 0.16);
+        --row-open-bg: rgba(34, 197, 94, 0.05);
+        --row-open-bg-hover: rgba(34, 197, 94, 0.1);
         --divider: rgba(15, 23, 42, 0.06);
         --btn-bg: rgba(15, 23, 42, 0.06);
         --btn-bg-hover: rgba(15, 23, 42, 0.12);
-        --reveal: rgba(255, 255, 255, 0.5);
       }
 
       @media (prefers-color-scheme: dark) {
         :root {
-          --panel-bg: rgba(30, 32, 38, 0.82);
+          --panel-bg: rgba(30, 32, 38, 0.97);
           --panel-border: rgba(255, 255, 255, 0.09);
-          --panel-shadow: 0 18px 44px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+          --panel-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
           --text-primary: rgba(255, 255, 255, 0.94);
-          --text-secondary: rgba(255, 255, 255, 0.5);
+          --text-secondary: #a9afb9;
+          --green: #70d6a4;
+          --amber: #efbd70;
+          --accent: #91baff;
           --row-bg: rgba(255, 255, 255, 0.04);
           --row-bg-hover: rgba(255, 255, 255, 0.09);
-          --row-open-bg: rgba(34, 197, 94, 0.14);
-          --row-open-bg-hover: rgba(34, 197, 94, 0.2);
+          --row-open-bg: rgba(34, 197, 94, 0.07);
+          --row-open-bg-hover: rgba(34, 197, 94, 0.12);
           --divider: rgba(255, 255, 255, 0.07);
           --btn-bg: rgba(255, 255, 255, 0.08);
           --btn-bg-hover: rgba(255, 255, 255, 0.16);
-          --reveal: rgba(255, 255, 255, 0.06);
         }
       }
 
@@ -61,9 +64,7 @@
       }
 
       body {
-        font-family: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", -apple-system,
-          BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
-        -webkit-font-smoothing: antialiased;
+        font-family: var(--font-ui);
         display: flex;
         align-items: flex-start;
         justify-content: center;
@@ -74,13 +75,14 @@
         position: relative;
         width: 100%;
         max-width: 288px;
-        border-radius: 20px;
+        max-height: 544px;
+        border-radius: 24px;
         background: var(--panel-bg);
         border: 1px solid var(--panel-border);
         box-shadow: var(--panel-shadow);
         backdrop-filter: blur(24px) saturate(160%);
         -webkit-backdrop-filter: blur(24px) saturate(160%);
-        overflow: hidden;
+        overflow: auto;
         opacity: 0;
         transform: translateY(-6px) scale(0.98);
         animation: panel-in 260ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
@@ -91,21 +93,6 @@
           opacity: 1;
           transform: translateY(0) scale(1);
         }
-      }
-
-      /* Fluent "reveal" glow that follows the cursor - subtle, Windows-11-flavored */
-      #panel::before {
-        content: "";
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        background: radial-gradient(160px circle at var(--mx, 50%) var(--my, 0%), var(--reveal), transparent 60%);
-        opacity: 0;
-        transition: opacity 220ms ease;
-        z-index: 0;
-      }
-      #panel.reveal::before {
-        opacity: 1;
       }
 
       #header {
@@ -126,25 +113,26 @@
       }
 
       #header .title {
-        font-size: 12.5px;
+        font-size: 14px;
         font-weight: 600;
         color: var(--text-primary);
-        letter-spacing: 0.1px;
+        letter-spacing: -0.02em;
         flex: 1;
         min-width: 0;
       }
 
       #header .summary {
-        font-size: 11px;
+        font-size: 12px;
         color: var(--text-secondary);
-        font-weight: 500;
+        font-weight: 450;
+        font-variant-numeric: tabular-nums;
         white-space: nowrap;
       }
 
       .icon-btn {
         -webkit-app-region: no-drag;
-        width: 22px;
-        height: 22px;
+        width: 28px;
+        height: 28px;
         border-radius: 999px;
         border: none;
         background: var(--btn-bg);
@@ -197,7 +185,6 @@
       }
       .row:hover {
         background: var(--row-bg-hover);
-        transform: translateY(-1px);
       }
       .row.is-open {
         background: var(--row-open-bg);
@@ -215,8 +202,8 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 12.5px;
-        font-weight: 700;
+        font-size: 13px;
+        font-weight: 600;
         color: #fff;
       }
 
@@ -238,21 +225,28 @@
       .status-dot.locked {
         background: var(--gray);
       }
+      .status-dot.ready { background: var(--accent); }
+      .status-dot.unknown { background: var(--gray); }
 
       .row-text {
         flex: 1;
         min-width: 0;
       }
       .row-name {
-        font-size: 12.5px;
+        font-size: 14px;
         font-weight: 600;
+        line-height: 1.4;
+        letter-spacing: -0.015em;
         color: var(--text-primary);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
       .row-sub {
-        font-size: 10.5px;
+        font-size: 12.5px;
+        font-weight: 400;
+        line-height: 1.45;
+        letter-spacing: -0.005em;
         color: var(--text-secondary);
         white-space: nowrap;
         overflow: hidden;
@@ -269,8 +263,9 @@
 
       .countdown {
         font-variant-numeric: tabular-nums;
-        font-size: 12px;
-        font-weight: 700;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
         white-space: nowrap;
       }
       .countdown.open {
@@ -287,11 +282,12 @@
         -webkit-app-region: no-drag;
         border: none;
         border-radius: 999px;
-        background: var(--green);
-        color: #fff;
-        font-size: 10.5px;
-        font-weight: 700;
-        padding: 5px 9px;
+        background: var(--btn-bg);
+        color: var(--text-primary);
+        font-size: 12px;
+        font-weight: 550;
+        line-height: 1.35;
+        padding: 8px 10px;
         cursor: pointer;
         white-space: nowrap;
         transition: filter 150ms ease, transform 150ms ease;
@@ -314,8 +310,8 @@
         border: none;
         background: transparent;
         color: var(--accent);
-        font-size: 11.5px;
-        font-weight: 600;
+        font-size: 12.5px;
+        font-weight: 550;
         padding: 6px 0 0;
         cursor: pointer;
         text-align: center;
@@ -335,10 +331,10 @@
         margin-bottom: 6px;
       }
       #empty .msg {
-        font-size: 12px;
+        font-size: 13px;
         color: var(--text-secondary);
         margin-bottom: 10px;
-        line-height: 1.4;
+        line-height: 1.55;
       }
       #empty button {
         -webkit-app-region: no-drag;
@@ -346,13 +342,65 @@
         border-radius: 999px;
         background: var(--accent);
         color: #fff;
-        font-size: 11.5px;
-        font-weight: 700;
+        font-size: 13px;
+        font-weight: 550;
         padding: 7px 14px;
         cursor: pointer;
       }
 
-      button:focus-visible,
+      #hero {
+        padding: 18px 16px 16px;
+        color: var(--text-primary);
+      }
+      #hero-label {
+        color: var(--text-secondary);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.075em;
+        text-transform: uppercase;
+      }
+      #hero-value {
+        margin: 8px 0;
+        font-size: 40px;
+        line-height: 1.1;
+        font-weight: 550;
+        letter-spacing: -0.045em;
+        font-variant-numeric: tabular-nums;
+      }
+      #hero-detail, #hero-time {
+        color: var(--text-secondary);
+        font-size: 13px;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+      }
+      #hero-time { margin-top: 2px; }
+      #tool-config { display: flex; align-items: center; gap: 10px; padding: 12px 16px 0; color: var(--text-secondary); font-size: 13px; }
+      #tool-select { flex: 1; min-width: 0; border: 1px solid var(--panel-border); border-radius: 10px; padding: 7px 10px; background: var(--btn-bg); color: var(--text-primary); font: inherit; cursor: pointer; color-scheme: light dark; }
+      #tool-select option { background: var(--panel-bg); color: var(--text-primary); }
+      #save-error { margin: 12px; padding: 10px; border-radius: 12px; background: #fff1f2; color: #9f1239; font-size: 13px; }
+      #undo-change { margin: 4px 14px 12px; border: 0; border-radius: 12px; padding: 9px 12px; color: var(--accent); background: var(--btn-bg); cursor: pointer; font: inherit; font-size: 13px; font-weight: 550; }
+      .row:focus-within { background: var(--row-bg-hover); }
+      .row-detail {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        border: 0;
+        padding: 0;
+        background: transparent;
+        text-align: left;
+        font: inherit;
+        cursor: pointer;
+      }
+      .row-text { display: block; }
+      .row-name, .row-sub { display: block; }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+        #panel { opacity: 1; transform: none; }
+      }
+
+      button:focus-visible, select:focus-visible,
       [tabindex]:focus-visible {
         outline: 2px solid var(--accent);
         outline-offset: 2px;
@@ -373,10 +421,24 @@
         </button>
       </div>
       <div id="divider"></div>
+      <div id="tool-config">
+        <label for="tool-select">Show</label>
+        <select id="tool-select" aria-label="Widget tool" disabled><option value="">All tools</option></select>
+      </div>
+      <div id="save-error" role="alert" hidden></div>
+      <section id="hero" aria-label="Reset overview" hidden>
+        <div id="hero-label"></div>
+        <div id="hero-value"></div>
+        <div id="hero-detail"></div>
+        <div id="hero-time"></div>
+      </section>
       <div id="rows"></div>
       <div id="footer"></div>
+      <button id="undo-change" hidden>Undo last change</button>
       <div id="empty" style="display: none"></div>
     </div>
+    <script src="domain.js"></script>
+    <script src="state-client.js"></script>
     <script src="widget.js"></script>
   </body>
 </html>

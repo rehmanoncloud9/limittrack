@@ -1,6 +1,6 @@
 {
   "name": "limittrack",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Track reset times for rate-limited coding tool accounts (Antigravity, Codex, Claude Code, and more) across multiple emails, with live countdowns and native desktop notifications.",
   "main": "main.js",
   "scripts": {
@@ -8,7 +8,9 @@
     "build": "electron-builder",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
-    "build:linux": "electron-builder --linux"
+    "build:linux": "electron-builder --linux",
+    "build:styles": "npx --yes --package tailwindcss@3.4.17 tailwindcss -c tailwind.config.js -i styles.input.css -o app.css --minify",
+    "test": "node --test"
   },
   "author": {
     "name": "Abdul Rehman",
@@ -40,8 +42,22 @@
     "appId": "com.yourname.limittrack",
     "productName": "LimitTrack",
     "files": [
-      "**/*",
-      "!**/*.md"
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "domain.js",
+      "state-client.js",
+      "store.js",
+      "app.css",
+      "typography.css",
+      "assets/fonts/**/*",
+      "index.html",
+      "widget.html",
+      "widget.js",
+      "icon.png",
+      "favicon.ico",
+      "LICENSE",
+      "package.json"
     ],
     "directories": {
       "output": "dist"

@@ -1,24 +1,98 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, screen } = require("electron");
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, screen, Notification, powerMonitor, dialog } = require("electron");
 const path = require("path");
-const fs = require("fs");
+const Domain = require("./domain");
+const { createStore } = require("./store");
 
 const STORE_PATH = path.join(app.getPath("userData"), "limittrack-data.json");
+const localStore = createStore(STORE_PATH);
 const WIDGET_BOUNDS_KEY = "limittrack-widget-bounds";
 const WIDGET_VISIBLE_KEY = "limittrack-widget-visible";
+const WIDGET_PROVIDER_KEY = "limittrack-widget-provider";
 const WIDGET_WIDTH = 304;
 const WIDGET_MIN_HEIGHT = 88;
 const WIDGET_MAX_HEIGHT = 560;
+const ownsInstance = app.requestSingleInstanceLock();
+if (!ownsInstance) app.quit();
+app.on("second-instance", () => showAccount());
 
 function readStore() {
-  try {
-    return JSON.parse(fs.readFileSync(STORE_PATH, "utf-8"));
-  } catch (e) {
-    return {};
-  }
+  return localStore.read();
 }
 
 function writeStore(data) {
-  fs.writeFileSync(STORE_PATH, JSON.stringify(data, null, 2), "utf-8");
+  localStore.write(data);
+}
+
+function accountState(data = readStore()) {
+  return Domain.normalizeState(data[Domain.STORAGE_KEY] ? JSON.parse(data[Domain.STORAGE_KEY]) : Domain.DEFAULT_STATE);
+}
+
+function trustedSender(event) {
+  return [mainWindow, widgetWindow].some((win) => win && !win.isDestroyed() && win.webContents === event.sender)
+    && event.senderFrame === event.sender.mainFrame;
+}
+
+function broadcastState(senderId) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed() && win.webContents.id !== senderId) win.webContents.send("storage:changed", Domain.STORAGE_KEY);
+  }
+}
+
+function showAccount(accountId) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.show();
+  mainWindow.focus();
+  if (typeof accountId === "string") mainWindow.webContents.send("account:reveal", accountId);
+}
+
+function reconcileResets() {
+  try {
+    const data = readStore();
+    const state = accountState(data);
+    const available = state.accounts.filter((a) => Domain.getStatus(a, Date.now()) === "open").length;
+    const waiting = state.accounts.filter((a) => ["soon", "locked"].includes(Domain.getStatus(a, Date.now())))
+      .sort((a, b) => Date.parse(a.resetAt) - Date.parse(b.resetAt));
+    if (tray) tray.setToolTip(`LimitTrack: ${available} marked available${waiting.length ? ` · Next reset ${Domain.formatCountdown(waiting[0], Date.now(), true)}` : " · No active timers"}`);
+    const delivered = data["limittrack-notified-resets"] || {};
+    const due = Domain.dueResets(state, delivered, Date.now()).filter((a) => !pendingNotificationIds.has(a.id));
+    if (!due.length || Date.now() < notificationRetryAfter || !Notification.isSupported()) return;
+    const first = due[0];
+    const provider = state.providers.find((p) => p.id === first.providerId);
+    const notification = new Notification({
+      title: due.length === 1 ? "Account expected ready" : `${due.length} accounts expected ready`,
+      body: due.length === 1 ? `${provider ? provider.name : "Account"} · ${first.email}. Check the tool to confirm.` : "Recorded reset times have passed. Open LimitTrack to review your accounts.",
+      icon: path.join(__dirname, "icon.png"),
+    });
+    activeNotifications.add(notification);
+    due.forEach((account) => pendingNotificationIds.add(account.id));
+    const clearPending = () => due.forEach((account) => pendingNotificationIds.delete(account.id));
+    notification.once("show", () => {
+      try {
+        const latest = readStore();
+        const latestState = accountState(latest);
+        const nextDelivered = {};
+        const previous = latest["limittrack-notified-resets"] || {};
+        for (const account of latestState.accounts) {
+          if (account.resetAt && previous[account.id] === account.resetAt) nextDelivered[account.id] = account.resetAt;
+          if (due.some((d) => d.id === account.id && d.resetAt === account.resetAt)) nextDelivered[account.id] = account.resetAt;
+        }
+        latest["limittrack-notified-resets"] = nextDelivered;
+        writeStore(latest);
+      } catch (error) { notificationRetryAfter = Date.now() + 60000; console.error(error.message); }
+      clearPending();
+    });
+    notification.once("failed", () => {
+      clearPending();
+      activeNotifications.delete(notification);
+      notificationRetryAfter = Date.now() + 60000;
+    });
+    notification.once("close", () => { clearPending(); activeNotifications.delete(notification); });
+    notification.on("click", () => showAccount(due.length === 1 ? first.id : undefined));
+    try { notification.show(); }
+    catch (error) { clearPending(); activeNotifications.delete(notification); throw error; }
+  } catch (error) {
+    console.error("Reset notification could not be scheduled:", error.message);
+  }
 }
 
 let mainWindow;
@@ -26,6 +100,9 @@ let tray;
 let widgetWindow = null;
 let widgetVisible = false;
 let widgetMenuItem = null;
+const activeNotifications = new Set();
+const pendingNotificationIds = new Set();
+let notificationRetryAfter = 0;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -48,9 +125,10 @@ function createWindow() {
   // Links (e.g. the About modal) should open in the user's real browser,
   // not spawn a new Electron window.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (/^(https?:|mailto:)/i.test(url)) shell.openExternal(url);
     return { action: "deny" };
   });
+  mainWindow.webContents.on("will-navigate", (event) => event.preventDefault());
 
   // Closing the window minimizes to tray instead of quitting,
   // so LimitTrack keeps tracking (and can still notify you) in the background.
@@ -161,9 +239,11 @@ function createWidgetWindow() {
     moveSaveTimer = setTimeout(() => {
       if (!widgetWindow) return;
       const b = widgetWindow.getBounds();
-      const store = readStore();
-      store[WIDGET_BOUNDS_KEY] = { x: b.x, y: b.y, height: b.height };
-      writeStore(store);
+      try {
+        const store = readStore();
+        store[WIDGET_BOUNDS_KEY] = { x: b.x, y: b.y, height: b.height };
+        writeStore(store);
+      } catch (error) { console.error("Widget position could not be saved:", error.message); }
     }, 400);
   });
 
@@ -173,10 +253,16 @@ function createWidgetWindow() {
 }
 
 function setWidgetVisible(visible) {
-  widgetVisible = visible;
-  const store = readStore();
-  store[WIDGET_VISIBLE_KEY] = visible;
-  writeStore(store);
+  try {
+    const store = readStore();
+    store[WIDGET_VISIBLE_KEY] = visible;
+    writeStore(store);
+    widgetVisible = visible;
+  } catch (error) {
+    if (widgetMenuItem) widgetMenuItem.checked = widgetVisible;
+    dialog.showMessageBox(mainWindow, { type: "error", message: "Widget preference could not be saved.", detail: error.message });
+    return;
+  }
 
   if (visible) {
     if (!widgetWindow) {
@@ -199,12 +285,25 @@ function setWidgetVisible(visible) {
 }
 
 app.whenReady().then(() => {
-  const store = readStore();
+  if (!ownsInstance) return;
+  if (process.platform === "win32") app.setAppUserModelId("com.yourname.limittrack");
+  let store;
+  try { store = readStore(); accountState(store); }
+  catch (error) {
+    dialog.showErrorBox("LimitTrack data needs attention", `${error.message}\n\nLocal file: ${STORE_PATH}`);
+    app.quit();
+    return;
+  }
   widgetVisible = !!store[WIDGET_VISIBLE_KEY];
 
   createWindow();
   createTray();
   if (widgetVisible) createWidgetWindow();
+  if (localStore.notice()) dialog.showMessageBox(mainWindow, { type: "warning", message: localStore.notice() });
+  reconcileResets();
+  const notificationTimer = setInterval(reconcileResets, 15000);
+  powerMonitor.on("resume", reconcileResets);
+  app.once("before-quit", () => clearInterval(notificationTimer));
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -220,28 +319,47 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-// Simple local JSON storage, exposed to the renderer via preload.js
-ipcMain.handle("storage:get", (event, key) => {
+// Validated, synchronous transactions serialize updates from both windows.
+ipcMain.handle("state:get", (event) => {
+  if (!trustedSender(event)) throw new Error("Unknown window.");
+  return accountState();
+});
+ipcMain.handle("state:commit", (event, base, next, options) => {
+  if (!trustedSender(event)) throw new Error("Unknown window.");
   const data = readStore();
-  return Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null;
+  const merged = Domain.mergeState(base, next, accountState(data));
+  if (data[WIDGET_PROVIDER_KEY] && !merged.providers.some((p) => p.id === data[WIDGET_PROVIDER_KEY])) data[WIDGET_PROVIDER_KEY] = null;
+  if (options?.backup === true) localStore.checkpoint();
+  data[Domain.STORAGE_KEY] = JSON.stringify(merged);
+  writeStore(data);
+  broadcastState(event.sender.id);
+  reconcileResets();
+  return merged;
 });
 
-ipcMain.handle("storage:set", (event, key, value) => {
+ipcMain.handle("widget:config-get", (event) => {
+  if (!trustedSender(event)) throw new Error("Unknown window.");
   const data = readStore();
-  data[key] = value;
+  const providerId = data[WIDGET_PROVIDER_KEY];
+  return { providerId: accountState(data).providers.some((p) => p.id === providerId) ? providerId : null };
+});
+
+ipcMain.handle("widget:config-set", (event, config) => {
+  if (!trustedSender(event)) throw new Error("Unknown window.");
+  const data = readStore();
+  const providerId = config?.providerId;
+  if (providerId !== null && (typeof providerId !== "string" || !accountState(data).providers.some((p) => p.id === providerId))) {
+    throw new Error("Choose an existing tool or All tools.");
+  }
+  data[WIDGET_PROVIDER_KEY] = providerId;
   writeStore(data);
-  // Keep every open window (main + widget) in sync: whichever window didn't
-  // originate the write just reloads its copy of the state from disk.
-  BrowserWindow.getAllWindows().forEach((win) => {
-    if (!win.isDestroyed()) win.webContents.send("storage:changed", key);
-  });
-  return true;
+  return { providerId };
 });
 
 // Live tray tooltip, updated once a second by the renderer's tick loop so
 // people can see "what's next" without opening the window.
 ipcMain.on("tray:update", (event, text) => {
-  if (tray && typeof text === "string") {
+  if (trustedSender(event) && tray && typeof text === "string") {
     tray.setToolTip(text.slice(0, 250));
   }
 });
@@ -249,22 +367,23 @@ ipcMain.on("tray:update", (event, text) => {
 // ---------- widget IPC ----------
 
 ipcMain.on("widget:resize", (event, height) => {
-  if (!widgetWindow) return;
+  if (!widgetWindow || event.sender !== widgetWindow.webContents || !Number.isFinite(height)) return;
   const b = widgetWindow.getBounds();
   const clampedHeight = Math.max(WIDGET_MIN_HEIGHT, Math.min(WIDGET_MAX_HEIGHT, Math.round(height)));
   if (clampedHeight === b.height) return;
-  widgetWindow.setBounds({ x: b.x, y: b.y, width: b.width, height: clampedHeight }, false);
-  const store = readStore();
-  store[WIDGET_BOUNDS_KEY] = { x: b.x, y: b.y, height: clampedHeight };
-  writeStore(store);
+  const pos = clampToWorkArea(b.x, b.y, b.width, clampedHeight);
+  widgetWindow.setBounds({ ...pos, width: b.width, height: clampedHeight }, false);
+  try {
+    const store = readStore();
+    store[WIDGET_BOUNDS_KEY] = { ...pos, height: clampedHeight };
+    writeStore(store);
+  } catch (error) { console.error("Widget size could not be saved:", error.message); }
 });
 
-ipcMain.on("widget:hide", () => {
-  setWidgetVisible(false);
+ipcMain.on("widget:hide", (event) => {
+  if (trustedSender(event)) setWidgetVisible(false);
 });
 
-ipcMain.on("widget:open-main", () => {
-  if (!mainWindow) return;
-  mainWindow.show();
-  mainWindow.focus();
+ipcMain.on("widget:open-main", (event, accountId) => {
+  if (trustedSender(event)) showAccount(accountId);
 });

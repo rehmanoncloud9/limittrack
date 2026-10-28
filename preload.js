@@ -1,8 +1,8 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("limittrack", {
-  storageGet: (key) => ipcRenderer.invoke("storage:get", key),
-  storageSet: (key, value) => ipcRenderer.invoke("storage:set", key, value),
+  stateGet: () => ipcRenderer.invoke("state:get"),
+  stateCommit: (base, next, options) => ipcRenderer.invoke("state:commit", base, next, options),
   trayUpdate: (text) => ipcRenderer.send("tray:update", text),
   // Fired whenever any window (main or widget) writes to the store, so the
   // other window can reload and stay in sync.
@@ -14,5 +14,12 @@ contextBridge.exposeInMainWorld("limittrack", {
   // Floating widget window controls (no-ops if called from the main window).
   widgetResize: (height) => ipcRenderer.send("widget:resize", height),
   widgetHide: () => ipcRenderer.send("widget:hide"),
-  widgetOpenMain: () => ipcRenderer.send("widget:open-main"),
+  widgetConfigGet: () => ipcRenderer.invoke("widget:config-get"),
+  widgetConfigSet: (config) => ipcRenderer.invoke("widget:config-set", config),
+  widgetOpenMain: (accountId) => ipcRenderer.send("widget:open-main", accountId),
+  onAccountReveal: (callback) => {
+    const listener = (event, accountId) => callback(accountId);
+    ipcRenderer.on("account:reveal", listener);
+    return () => ipcRenderer.removeListener("account:reveal", listener);
+  },
 });

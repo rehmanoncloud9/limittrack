@@ -11,7 +11,7 @@ npm install
 npm start
 ```
 
-The app runs straight from source, with no build or bundle step needed during development.
+The app runs straight from source, with the compiled stylesheet included. When changing utility classes or theme tokens, run `npm run build:styles`. Run `npm test` for the domain, persistence, client concurrency, and mocked Electron checks (Node.js 20 or newer).
 
 ## Where things live
 
@@ -19,8 +19,15 @@ The app runs straight from source, with no build or bundle step needed during de
 |---|---|
 | `main.js` | Electron main process: window, system tray, local JSON storage |
 | `preload.js` | Secure bridge exposing storage to the renderer |
-| `index.html` | App shell (loads Tailwind via CDN) |
+| `index.html` | App shell, loading bundled scripts and styles |
 | `renderer.js` | All UI state, rendering, and event handling (vanilla JS) |
+| `domain.js` | Shared validation, legacy migration, availability, and conflict-aware state merging |
+| `state-client.js` | Renderer write queue and transaction baselines |
+| `store.js` | Atomic local persistence and recovery copies |
+| `styles.input.css`, `tailwind.config.js`, `app.css` | System appearance tokens, utility generation, and bundled output |
+| `typography.css`, `assets/fonts/` | Shared Inter Variable font, native fallbacks, and font license |
+| `widget.html`, `widget.js` | Floating reset overview and account actions |
+| `test/` | Node tests; Electron APIs are mocked rather than launching the user's app |
 | `build/icon.png` | Source icon used to generate platform installers |
 
 ## Making a change

@@ -1,13 +1,6 @@
-const STORAGE_KEY = "limittrack-state-v1";
-
-const DEFAULT_STATE = {
-  providers: [
-    { id: "antigravity", name: "Antigravity", cycleValue: 7, cycleUnit: "days" },
-    { id: "codex", name: "Codex", cycleValue: 7, cycleUnit: "days" },
-    { id: "claude", name: "Claude Code", cycleValue: 7, cycleUnit: "days" },
-  ],
-  accounts: [],
-};
+const { STORAGE_KEY, DEFAULT_STATE, getStatus, effectiveTime } = window.LimitTrackDomain;
+const dataClient = window.createLimitTrackClient(window.limittrack);
+let persistenceError = "";
 
 let state = JSON.parse(JSON.stringify(DEFAULT_STATE));
 let editingProviderId = null;
@@ -16,8 +9,10 @@ let editingCycleUnit = "days";
 let editingResetId = null;
 let editingResetValue = "";
 let showAddAccount = false;
+let addAccountProviderId = null;
 let showAddProvider = false;
 let showAbout = false;
+let pendingImport = null;
 let newAccountDraft = { providerId: "", email: "", cycleValue: "", cycleUnit: "days" };
 let newProviderDraft = { name: "", cycleValue: "7", cycleUnit: "days" };
 const prevStatus = {};
@@ -31,6 +26,7 @@ let toastTimer = null;
 
 // daily-use: search / sort / bulk selection
 let searchQuery = "";
+let statusFilter = "all";
 let sortMode = "soonest"; // 'soonest' | 'alpha'
 let bulkMode = false;
 let selectedIds = new Set();
@@ -57,59 +53,18 @@ function cycleLabel(value, unit) {
   return `${v}-${noun} cycle`;
 }
 
-// Migrate legacy records that only had `cycleDays` (a plain number of days)
-// to the new { cycleValue, cycleUnit } shape, so old saved data keeps working.
-function migrateProvider(p) {
-  if (p && typeof p.cycleValue !== "undefined") return { ...p, cycleUnit: normalizeUnit(p.cycleUnit) };
-  return { ...p, cycleValue: p && p.cycleDays ? p.cycleDays : 7, cycleUnit: "days" };
-}
-
-function migrateAccount(a) {
-  if (!a) return a;
-  if (typeof a.cycleValue !== "undefined") return { ...a, cycleUnit: a.cycleValue ? normalizeUnit(a.cycleUnit) : a.cycleUnit };
-  if (a.cycleDays) return { ...a, cycleValue: a.cycleDays, cycleUnit: "days" };
-  return { ...a, cycleValue: null, cycleUnit: "days" };
-}
-
-// ---------- pure helpers ----------
-
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
-function effectiveTime(acc, nowMs) {
-  if (!acc.resetAt) return -1;
-  const t = new Date(acc.resetAt).getTime();
-  return t <= nowMs ? -1 : t;
-}
-
-function getStatus(acc, nowMs) {
-  if (!acc.resetAt) return "open";
-  const t = new Date(acc.resetAt).getTime();
-  const diff = t - nowMs;
-  if (diff <= 0) return "open";
-  if (diff <= 24 * 60 * 60 * 1000) return "soon";
-  return "locked";
-}
-
 function formatCountdown(acc, nowMs) {
-  if (!acc.resetAt) return "OPEN NOW";
-  const diff = new Date(acc.resetAt).getTime() - nowMs;
-  if (diff <= 0) return "OPEN NOW";
-  const totalSec = Math.floor(diff / 1000);
-  const d = Math.floor(totalSec / 86400);
-  const h = Math.floor((totalSec % 86400) / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  if (d > 0) return `${d}d ${h}h ${m}m`;
-  if (h > 0) return `${h}h ${m}m ${s}s`;
-  return `${m}m ${s}s`;
+  return window.LimitTrackDomain.formatCountdown(acc, nowMs);
 }
 
 function formatWhen(iso) {
   if (!iso) return "never";
   const dt = new Date(iso);
-  return dt.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return dt.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
 }
 
 function toLocalInputValue(iso) {
@@ -148,9 +103,11 @@ const RESET_PRESETS = [
 ];
 
 function statusStyles(status) {
-  if (status === "open") return { dot: "bg-green-500", text: "text-green-600", label: "Open now" };
-  if (status === "soon") return { dot: "bg-orange-400", text: "text-orange-500", label: "Opens soon" };
-  return { dot: "bg-slate-300", text: "text-slate-400", label: "Locked" };
+  if (status === "open") return { dot: "bg-success-soft0", text: "text-success", label: "Marked available" };
+  if (status === "ready") return { dot: "bg-blue-400", text: "text-accent-ink", label: "Check tool to confirm" };
+  if (status === "unknown") return { dot: "bg-slate-300", text: "text-muted", label: "Status unknown" };
+  if (status === "soon") return { dot: "bg-orange-400", text: "text-warning", label: "Expected soon" };
+  return { dot: "bg-slate-400", text: "text-muted", label: "Waiting for reset" };
 }
 
 function escapeHtml(str) {
@@ -184,31 +141,28 @@ function icon(name, size = 14) {
 
 // ---------- storage ----------
 
-async function loadState() {
+async function loadState(preserveFocus = false) {
   try {
-    const value = await window.limittrack.storageGet(STORAGE_KEY);
-    if (value) {
-      const parsed = JSON.parse(value);
-      state = {
-        providers: (parsed.providers || DEFAULT_STATE.providers).map(migrateProvider),
-        accounts: (parsed.accounts || []).map(migrateAccount),
-      };
-    }
-  } catch (e) {
-    // nothing saved yet, keep defaults
-  }
-  render();
+    state = await dataClient.read();
+    persistenceError = "";
+  } catch (error) { persistenceError = error.message; }
+  if (preserveFocus) rerenderPreservingFocus(); else render();
 }
 
-async function saveState() {
+async function saveState(options = {}) {
   try {
-    await window.limittrack.storageSet(STORAGE_KEY, JSON.stringify(state));
-  } catch (e) {
-    console.error("save failed", e);
+    await dataClient.save(state, options);
+    await loadState(true);
+    return true;
+  } catch (error) {
+    await loadState(true);
+    persistenceError = "Change was not saved. " + error.message;
+    lastDeleted = null;
+    toast = null;
+    rerenderPreservingFocus();
+    return false;
   }
 }
-
-// ---------- actions ----------
 
 function providerCycle(providerId) {
   const p = state.providers.find((p) => p.id === providerId);
@@ -223,23 +177,31 @@ function accountCycle(acc) {
 function markHit(id) {
   const acc = state.accounts.find((a) => a.id === id);
   if (!acc) return;
+  const before = window.LimitTrackDomain.clone(acc);
   const { value, unit } = accountCycle(acc);
   const hitAt = new Date().toISOString();
   const resetAt = new Date(Date.now() + cycleToMs(value, unit)).toISOString();
   acc.lastHitAt = hitAt;
   acc.resetAt = resetAt;
+  acc.confirmedAvailableAt = null;
+  acc.resetSource = "estimate";
   acc.history = [{ hitAt, resetAt }, ...(acc.history || [])].slice(0, 8);
+  finishAccountChange(acc, before, "Limit logged. Reset time is an estimate.");
+}
+
+function finishAccountChange(account, before, message) {
+  lastDeleted = { kind: "account-change", record: before, after: window.LimitTrackDomain.clone(account) };
   saveState();
-  render();
+  showToast(message, true);
 }
 
 function clearHit(id) {
   const acc = state.accounts.find((a) => a.id === id);
   if (!acc) return;
-  acc.lastHitAt = null;
+  const before = window.LimitTrackDomain.clone(acc);
   acc.resetAt = null;
-  saveState();
-  render();
+  acc.confirmedAvailableAt = new Date().toISOString();
+  finishAccountChange(acc, before, "Account marked available.");
 }
 
 function saveCustomReset(id) {
@@ -250,8 +212,11 @@ function saveCustomReset(id) {
   }
   const acc = state.accounts.find((a) => a.id === id);
   if (acc) {
+    const before = window.LimitTrackDomain.clone(acc);
     acc.resetAt = new Date(editingResetValue).toISOString();
-    saveState();
+    acc.resetSource = "exact";
+    acc.confirmedAvailableAt = null;
+    finishAccountChange(acc, before, "Reset time updated.");
   }
   editingResetId = null;
   render();
@@ -260,10 +225,12 @@ function saveCustomReset(id) {
 function applyPreset(id, hours) {
   const acc = state.accounts.find((a) => a.id === id);
   if (!acc) return;
+  const before = window.LimitTrackDomain.clone(acc);
   acc.resetAt = new Date(Date.now() + hours * 3600000).toISOString();
-  saveState();
+  acc.resetSource = "estimate";
+  acc.confirmedAvailableAt = null;
   editingResetId = null;
-  render();
+  finishAccountChange(acc, before, "Estimated reset updated.");
 }
 
 function deleteAccount(id) {
@@ -287,6 +254,13 @@ function undoLastDelete() {
   } else if (lastDeleted.kind === "provider") {
     const idx = Math.min(lastDeleted.index, state.providers.length);
     state.providers.splice(idx, 0, lastDeleted.record);
+  } else if (lastDeleted.kind === "account-change") {
+    const idx = state.accounts.findIndex((a) => a.id === lastDeleted.record.id);
+    if (idx < 0 || JSON.stringify(state.accounts[idx]) !== JSON.stringify(lastDeleted.after)) {
+      showToast("This account changed again. Undo was not applied.");
+      return;
+    }
+    state.accounts[idx] = lastDeleted.record;
   }
   lastDeleted = null;
   saveState();
@@ -321,9 +295,46 @@ function cycleProgress(acc, nowMs) {
   return Math.max(0, Math.min(100, ((nowMs - start) / (end - start)) * 100));
 }
 
-function addAccount() {
-  if (!newAccountDraft.providerId || !newAccountDraft.email.trim()) return;
-  const cycleValue = newAccountDraft.cycleValue ? parseInt(newAccountDraft.cycleValue, 10) : null;
+function openAccountForm(providerId = null) {
+  if (providerId && !state.providers.some((p) => p.id === providerId)) return;
+  addAccountProviderId = providerId;
+  if (providerId) newAccountDraft.providerId = providerId;
+  showAddAccount = true;
+  showAddProvider = false;
+  render();
+  const field = document.querySelector(providerId || newAccountDraft.providerId
+    ? '[data-field="new-account-email"]'
+    : '[data-field="new-account-provider"]');
+  if (field) {
+    field.focus();
+    field.scrollIntoView({ block: "nearest", behavior: "auto" });
+  }
+}
+
+function closeAccountForm() {
+  const providerId = addAccountProviderId;
+  showAddAccount = false;
+  addAccountProviderId = null;
+  render();
+  const opener = [...document.querySelectorAll('[data-action="add-account-to-provider"]')]
+    .find((button) => button.dataset.id === providerId);
+  (opener || document.querySelector('[data-action="toggle-add-account"]'))?.focus();
+}
+
+function addAccount(keepAdding = false) {
+  if (!state.providers.some((p) => p.id === newAccountDraft.providerId)) {
+    document.querySelector('[data-field="new-account-provider"]')?.reportValidity();
+    return;
+  }
+  const emailInput = document.querySelector('[data-field="new-account-email"]');
+  if (!emailInput || !emailInput.reportValidity()) return;
+  if (!document.querySelector('[data-field="new-account-cycle"]')?.reportValidity()) return;
+  if (state.accounts.some((a) => a.providerId === newAccountDraft.providerId && a.email.toLowerCase() === newAccountDraft.email.trim().toLowerCase())) {
+    showToast("This account is already in this tool.");
+    document.querySelector('[data-field="new-account-email"]')?.focus();
+    return;
+  }
+  const cycleValue = newAccountDraft.cycleValue ? parseFloat(newAccountDraft.cycleValue) : null;
   state.accounts.push({
     id: genId(),
     providerId: newAccountDraft.providerId,
@@ -334,16 +345,18 @@ function addAccount() {
     resetAt: null,
     history: [],
   });
-  newAccountDraft = { providerId: "", email: "", cycleValue: "", cycleUnit: "days" };
-  showAddAccount = false;
+  const providerId = newAccountDraft.providerId;
+  newAccountDraft = { providerId, email: "", cycleValue: "", cycleUnit: "days" };
   saveState();
-  render();
+  if (keepAdding) openAccountForm(addAccountProviderId);
+  else closeAccountForm();
 }
 
 function addProvider() {
   const name = newProviderDraft.name.trim();
   if (!name) return;
-  const cycleValue = parseInt(newProviderDraft.cycleValue, 10) || 7;
+  if (!document.querySelector('[data-field="new-provider-cycle"]')?.reportValidity()) return;
+  const cycleValue = parseFloat(newProviderDraft.cycleValue) || 7;
   state.providers.push({ id: genId(), name, cycleValue, cycleUnit: normalizeUnit(newProviderDraft.cycleUnit) });
   newProviderDraft = { name: "", cycleValue: "7", cycleUnit: "days" };
   showAddProvider = false;
@@ -375,7 +388,8 @@ function startEditCycle(id) {
 }
 
 function saveEditCycle(id) {
-  const val = parseInt(editingCycleValue, 10);
+  if (!document.querySelector('[data-field="editing-cycle-value"]')?.reportValidity()) return;
+  const val = parseFloat(editingCycleValue);
   if (val && val > 0) {
     const p = state.providers.find((p) => p.id === id);
     if (p) {
@@ -397,6 +411,8 @@ function markHitBulk(ids) {
     const resetAt = new Date(Date.now() + cycleToMs(value, unit)).toISOString();
     acc.lastHitAt = hitAt;
     acc.resetAt = resetAt;
+    acc.confirmedAvailableAt = null;
+    acc.resetSource = "estimate";
     acc.history = [{ hitAt, resetAt }, ...(acc.history || [])].slice(0, 8);
   });
   saveState();
@@ -424,23 +440,14 @@ function exportBackup() {
 }
 
 function importBackup(file) {
+  if (file.size > 20 * 1024 * 1024) { showToast("Backup is too large (maximum 20 MB)."); return; }
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const parsed = JSON.parse(reader.result);
-      if (!parsed || !Array.isArray(parsed.providers) || !Array.isArray(parsed.accounts)) {
-        throw new Error("bad shape");
-      }
-      state = {
-        providers: parsed.providers.map(migrateProvider),
-        accounts: parsed.accounts.map(migrateAccount),
-      };
-      saveState();
-      showAbout = false;
-      showToast("Backup imported");
+      pendingImport = window.LimitTrackDomain.normalizeState(JSON.parse(reader.result));
       render();
     } catch (e) {
-      showToast("That file doesn't look like a LimitTrack backup");
+      showToast("Could not import backup: " + e.message);
     }
   };
   reader.onerror = () => showToast("Couldn't read that file");
@@ -453,13 +460,16 @@ function importBackup(file) {
 function rerenderPreservingFocus() {
   const active = document.activeElement;
   const field = active && active.dataset ? active.dataset.field : null;
+  const action = active?.dataset.action;
+  const id = active?.dataset.id;
+  const accountRow = active?.dataset.accountRow;
   const selStart = active && typeof active.selectionStart === "number" ? active.selectionStart : null;
   const selEnd = active && typeof active.selectionEnd === "number" ? active.selectionEnd : null;
   render();
   if (field) {
     const el = document.querySelector(`[data-field="${field}"]`);
     if (el) {
-      el.focus();
+      el.focus({ preventScroll: true });
       if (selStart !== null && el.setSelectionRange) {
         try {
           el.setSelectionRange(selStart, selEnd);
@@ -468,6 +478,10 @@ function rerenderPreservingFocus() {
         }
       }
     }
+  } else if (action) {
+    [...document.querySelectorAll("[data-action]")].find((el) => el.dataset.action === action && el.dataset.id === id)?.focus({ preventScroll: true });
+  } else if (accountRow) {
+    [...document.querySelectorAll("[data-account-row]")].find((el) => el.dataset.accountRow === accountRow)?.focus({ preventScroll: true });
   }
 }
 
@@ -487,6 +501,7 @@ function focusFirstInModal() {
 }
 
 function closeAbout() {
+  pendingImport = null;
   showAbout = false;
   render();
   if (aboutOpenerEl && document.body.contains(aboutOpenerEl)) aboutOpenerEl.focus();
@@ -498,7 +513,7 @@ function closeAbout() {
 function attachEvents() {
   const app = document.getElementById("app");
 
-  app.addEventListener("click", (e) => {
+  app.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
     const action = btn.dataset.action;
@@ -513,9 +528,11 @@ function attachEvents() {
 
     switch (action) {
       case "toggle-add-account":
-        showAddAccount = !showAddAccount;
-        showAddProvider = false;
-        render();
+        if (showAddAccount && !addAccountProviderId) closeAccountForm();
+        else openAccountForm();
+        break;
+      case "add-account-to-provider":
+        openAccountForm(id);
         break;
       case "toggle-add-provider":
         showAddProvider = !showAddProvider;
@@ -523,8 +540,7 @@ function attachEvents() {
         render();
         break;
       case "cancel-add-account":
-        showAddAccount = false;
-        render();
+        closeAccountForm();
         break;
       case "cancel-add-provider":
         showAddProvider = false;
@@ -532,6 +548,9 @@ function attachEvents() {
         break;
       case "save-add-account":
         addAccount();
+        break;
+      case "save-add-another-account":
+        addAccount(true);
         break;
       case "save-add-provider":
         addProvider();
@@ -629,6 +648,20 @@ function attachEvents() {
         if (input) input.click();
         break;
       }
+      case "cancel-import":
+        pendingImport = null;
+        render();
+        break;
+      case "confirm-import":
+        if (pendingImport) {
+          state = pendingImport;
+          pendingImport = null;
+          if (await saveState({ backup: true })) {
+            showAbout = false;
+            showToast("Backup imported. Previous data saved locally.");
+          }
+        }
+        break;
     }
   });
 
@@ -640,8 +673,7 @@ function attachEvents() {
         editingResetId = null;
         render();
       } else if (showAddAccount) {
-        showAddAccount = false;
-        render();
+        closeAccountForm();
       } else if (showAddProvider) {
         showAddProvider = false;
         render();
@@ -678,9 +710,7 @@ function attachEvents() {
     if (showAbout || showAddAccount || showAddProvider) return;
     if (!typing && e.key === "n") {
       e.preventDefault();
-      showAddAccount = true;
-      showAddProvider = false;
-      render();
+      openAccountForm();
     } else if (!typing && e.key === "/") {
       e.preventDefault();
       const search = document.querySelector('[data-field="search-query"]');
@@ -741,6 +771,10 @@ function attachEvents() {
         searchQuery = e.target.value;
         rerenderPreservingFocus();
         break;
+      case "status-filter":
+        statusFilter = e.target.value;
+        rerenderPreservingFocus();
+        break;
     }
   });
 
@@ -755,28 +789,60 @@ function attachEvents() {
 
 // ---------- render ----------
 
+function renderAccountForm(provider = null) {
+  const providerOptions = state.providers
+    .map((p) => `<option value="${p.id}" ${newAccountDraft.providerId === p.id ? "selected" : ""}>${escapeHtml(p.name)}</option>`)
+    .join("");
+
+  return `<div class="account-composer ${provider ? "border-b border-line bg-canvas/60" : "rounded-2xl bg-surface border border-line"} p-4 sm:p-5">
+                <div class="mb-4"><h3 class="text-base font-semibold text-ink">Add account${provider ? ` to ${escapeHtml(provider.name)}` : ""}</h3><p class="mt-1 text-xs text-muted">${provider ? `Uses this tool's configured ${cycleLabel(provider.cycleValue, provider.cycleUnit)} for estimates. Adjust it to match your plan.` : "Choose a tool and enter the account email. Status starts as not checked."}</p></div>
+                <div class="grid gap-3 sm:grid-cols-2">
+                  ${provider ? `<div class="flex items-center gap-2 text-sm text-ink px-1">${icon("check", 14)} ${escapeHtml(provider.name)}</div>` : `<select required aria-label="Tool" data-field="new-account-provider" class="bg-surface border border-line rounded-xl px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-blue-400 transition">
+                    <option value="">Select tool</option>
+                    ${providerOptions}
+                  </select>`}
+                  <input type="email" required aria-label="Account email" placeholder="you@example.com" data-field="new-account-email" value="${escapeHtml(newAccountDraft.email)}" class="bg-surface border border-line rounded-xl px-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
+                </div>
+                <div class="grid gap-3 sm:grid-cols-2 mt-3">
+                  <div class="flex items-center gap-2">
+                    <input type="number" min="0.01" max="100000" step="any" placeholder="Custom duration" aria-label="Custom reset duration (optional)" data-field="new-account-cycle" value="${escapeHtml(newAccountDraft.cycleValue)}" class="w-full bg-surface border border-line rounded-xl px-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
+                    <select data-field="new-account-cycle-unit" class="bg-surface border border-line rounded-xl px-2 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-blue-400 transition">
+                      <option value="days" ${newAccountDraft.cycleUnit === "days" ? "selected" : ""}>days</option>
+                      <option value="hours" ${newAccountDraft.cycleUnit === "hours" ? "selected" : ""}>hours</option>
+                    </select>
+                  </div>
+                  <div class="text-xs text-muted flex items-center px-1">Optional. Leave blank to use the tool’s default reset cycle.</div>
+                </div>
+                <div class="flex flex-wrap gap-2 mt-4">
+                  <button data-action="save-add-account" class="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white text-sm font-medium px-4 py-2 shadow-sm shadow-blue-500/30 transition-all active:scale-95">${icon("check", 14)} Add account</button>
+                  <button data-action="save-add-another-account" class="rounded-full bg-accent-soft hover:bg-accent-soft text-accent-ink text-sm font-medium px-4 py-2 transition-colors">Add &amp; add another</button>
+                  <button data-action="cancel-add-account" class="inline-flex items-center gap-1.5 rounded-full bg-surface border border-line hover:bg-canvas text-muted text-sm px-4 py-2 transition-all active:scale-95">${icon("x", 14)} Cancel</button>
+                </div>
+              </div>`;
+}
+
 function render() {
   const now = new Date();
   const nowMs = now.getTime();
   const totalAccounts = state.accounts.length;
   const openAccounts = state.accounts.filter((a) => getStatus(a, nowMs) === "open").length;
-
-  const providerOptions = state.providers
-    .map((p) => `<option value="${p.id}" ${newAccountDraft.providerId === p.id ? "selected" : ""}>${escapeHtml(p.name)}</option>`)
-    .join("");
+  const next = state.accounts.filter((a) => ["locked", "soon"].includes(getStatus(a, nowMs)))
+    .sort((a, b) => effectiveTime(a, nowMs) - effectiveTime(b, nowMs))[0];
+  const nextProvider = next && state.providers.find((p) => p.id === next.providerId);
 
   const providerSections = state.providers
     .map((provider) => {
       const query = searchQuery.trim().toLowerCase();
       const accounts = state.accounts
         .filter((a) => a.providerId === provider.id)
-        .filter((a) => !query || a.email.toLowerCase().includes(query))
+        .filter((a) => !query || a.email.toLowerCase().includes(query) || provider.name.toLowerCase().includes(query))
+        .filter((a) => statusFilter === "all" || (statusFilter === "waiting" ? ["locked", "soon"].includes(getStatus(a, nowMs)) : getStatus(a, nowMs) === statusFilter))
         .sort((a, b) => {
           if (sortMode === "alpha") return a.email.localeCompare(b.email);
           const ea = effectiveTime(a, nowMs);
           const eb = effectiveTime(b, nowMs);
           if (ea === -1 && eb === -1) return a.email.localeCompare(b.email);
-          return ea - eb;
+          return ea === eb ? a.email.localeCompare(b.email) : ea - eb;
         });
       const allAccountsForProvider = state.accounts.filter((a) => a.providerId === provider.id);
       const openCount = allAccountsForProvider.filter((a) => getStatus(a, nowMs) === "open").length;
@@ -784,23 +850,23 @@ function render() {
       const cycleBadge =
         editingProviderId === provider.id
           ? `<span class="flex items-center gap-1">
-               <input type="number" min="1" value="${escapeHtml(editingCycleValue)}" data-field="editing-cycle-value" aria-label="Cycle length" class="w-14 bg-white border border-slate-300 rounded-lg px-1.5 py-0.5 text-xs text-slate-800" />
-               <select data-field="editing-cycle-unit" aria-label="Cycle unit" class="bg-white border border-slate-300 rounded-lg px-1.5 py-0.5 text-xs text-slate-800">
+               <input type="number" min="0.01" max="100000" step="any" value="${escapeHtml(editingCycleValue)}" data-field="editing-cycle-value" aria-label="Cycle length" class="w-14 bg-surface border border-line rounded-lg px-1.5 py-0.5 text-xs text-ink" />
+               <select data-field="editing-cycle-unit" aria-label="Cycle unit" class="bg-surface border border-line rounded-lg px-1.5 py-0.5 text-xs text-ink">
                  <option value="days" ${editingCycleUnit === "days" ? "selected" : ""}>days</option>
                  <option value="hours" ${editingCycleUnit === "hours" ? "selected" : ""}>hours</option>
                </select>
-               <button data-action="save-cycle" data-id="${provider.id}" aria-label="Save cycle" class="text-green-600">${icon("check", 13)}</button>
+               <button data-action="save-cycle" data-id="${provider.id}" aria-label="Save cycle" class="text-success">${icon("check", 13)}</button>
              </span>`
-          : `<button data-action="edit-cycle" data-id="${provider.id}" aria-label="Edit ${escapeHtml(provider.name)} reset cycle" class="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 bg-slate-100/80 hover:bg-slate-200/80 rounded-full px-2.5 py-1 transition-colors">
+          : `<button data-action="edit-cycle" data-id="${provider.id}" aria-label="Edit ${escapeHtml(provider.name)} reset cycle" class="inline-flex items-center gap-1 text-xs text-muted hover:text-ink bg-subtle/80 hover:bg-line/80 rounded-full px-2.5 py-1 transition-colors">
                ${cycleLabel(provider.cycleValue, provider.cycleUnit)} ${icon("pencil", 10)}
              </button>`;
 
       const noMatch = allAccountsForProvider.length > 0 && accounts.length === 0;
       const accountRows =
         allAccountsForProvider.length === 0
-          ? `<div class="px-5 py-4 text-sm text-slate-400">No accounts added for ${escapeHtml(provider.name)} yet.</div>`
+          ? `<div class="px-5 py-4 text-sm text-muted">No accounts added for ${escapeHtml(provider.name)} yet.</div>`
           : noMatch
-          ? `<div class="px-5 py-4 text-sm text-slate-400">No accounts match "${escapeHtml(searchQuery)}".</div>`
+          ? `<div class="px-5 py-4 text-sm text-muted">No accounts match the current search and status filter.</div>`
           : accounts
               .map((acc) => {
                 const status = getStatus(acc, nowMs);
@@ -809,50 +875,51 @@ function render() {
                 const isPendingDelete = pendingDeleteAccountId === acc.id;
                 const resetEditPanel =
                   editingResetId === acc.id
-                    ? `<div class="border-t border-slate-200/60 bg-slate-50/60 px-5 py-3">
+                    ? `<div class="border-t border-line/60 bg-canvas/60 px-5 py-3">
                          <div class="flex flex-wrap items-center gap-1.5 mb-2.5">
                            ${RESET_PRESETS.map(
                              (p) =>
-                               `<button data-action="apply-preset" data-id="${acc.id}" data-hours="${p.hours}" class="rounded-full bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-600 hover:text-blue-700 text-xs font-medium px-3 py-1 transition-all active:scale-95">${p.label}</button>`
+                               `<button data-action="apply-preset" data-id="${acc.id}" data-hours="${p.hours}" class="rounded-full bg-surface hover:bg-accent-soft border border-line hover:border-blue-200 text-muted hover:text-accent-ink text-xs font-medium px-3 py-1 transition-all active:scale-95">${p.label}</button>`
                            ).join("")}
                          </div>
                          <div class="flex flex-wrap items-center gap-2">
-                           <label class="text-xs text-slate-400">or pick exactly</label>
-                           <input type="datetime-local" data-field="editing-reset-value" value="${escapeHtml(editingResetValue)}" class="bg-white border border-slate-200 rounded-xl px-2 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
-                           <span id="reset-preview" class="text-xs font-medium text-blue-600">${formatRelativePreview(editingResetValue)}</span>
+                           <label class="text-xs text-muted">or pick exactly</label>
+                           <input type="datetime-local" data-field="editing-reset-value" value="${escapeHtml(editingResetValue)}" class="bg-surface border border-line rounded-xl px-2 py-1.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
+                           <span id="reset-preview" class="text-xs font-medium text-accent-ink">${formatRelativePreview(editingResetValue)}</span>
                            <button data-action="save-reset" data-id="${acc.id}" class="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-xs font-medium px-3 py-1.5 shadow-sm shadow-blue-500/30 transition-all active:scale-95">${icon("check", 13)} Save</button>
-                           <button data-action="cancel-reset-edit" data-id="${acc.id}" class="inline-flex items-center gap-1 rounded-full bg-white border border-slate-200 hover:bg-slate-50 text-slate-500 text-xs px-3 py-1.5 transition-all active:scale-95">${icon("x", 13)} Cancel</button>
+                           <button data-action="cancel-reset-edit" data-id="${acc.id}" class="inline-flex items-center gap-1 rounded-full bg-surface border border-line hover:bg-canvas text-muted text-xs px-3 py-1.5 transition-all active:scale-95">${icon("x", 13)} Cancel</button>
                          </div>
                        </div>`
                     : "";
                 const actionButtons = isPendingDelete
-                  ? `<div class="flex items-center gap-1.5 bg-red-50 rounded-full pl-3 pr-1.5 py-1">
-                       <span class="text-xs text-red-600 font-medium">Remove?</span>
-                       <button data-action="confirm-delete-account" data-id="${acc.id}" aria-label="Confirm remove account" class="p-1 rounded-full bg-red-500 hover:bg-red-600 text-white transition-colors">${icon("check", 12)}</button>
-                       <button data-action="cancel-delete-account" data-id="${acc.id}" aria-label="Cancel remove account" class="p-1 rounded-full bg-white hover:bg-slate-100 text-slate-500 transition-colors">${icon("x", 12)}</button>
+                  ? `<div class="flex items-center gap-1.5 bg-danger-soft rounded-full pl-3 pr-1.5 py-1">
+                       <span class="text-xs text-danger font-medium">Remove?</span>
+                       <button data-action="confirm-delete-account" data-id="${acc.id}" aria-label="Confirm remove account" class="p-1 rounded-full bg-danger-soft0 hover:bg-red-600 text-white transition-colors">${icon("check", 12)}</button>
+                       <button data-action="cancel-delete-account" data-id="${acc.id}" aria-label="Cancel remove account" class="p-1 rounded-full bg-surface hover:bg-subtle text-muted transition-colors">${icon("x", 12)}</button>
                      </div>`
-                  : `<button data-action="mark-hit" data-id="${acc.id}" class="inline-flex items-center gap-1 rounded-full bg-blue-50 hover:bg-blue-100 border border-blue-100 text-blue-700 text-xs font-medium px-3 py-1.5 transition-all active:scale-95" title="Start the reset countdown from now">${icon("clock", 12)} Log hit</button>
-                     <button data-action="toggle-reset-edit" data-id="${acc.id}" aria-label="Set exact reset time for ${escapeHtml(acc.email)}" class="p-1.5 rounded-full hover:bg-slate-100 transition-colors ${editingResetId === acc.id ? "text-blue-500" : "text-slate-400 hover:text-blue-500"}" title="Set an exact reset date & time">${icon("calendar", 14)}</button>
-                     ${acc.resetAt ? `<button data-action="clear-hit" data-id="${acc.id}" aria-label="Clear cooldown for ${escapeHtml(acc.email)}" class="p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors" title="Clear cooldown (undo)">${icon("x", 13)}</button>` : ""}
-                     <button data-action="request-delete-account" data-id="${acc.id}" aria-label="Remove account ${escapeHtml(acc.email)}" class="p-1.5 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Remove account">${icon("trash", 13)}</button>`;
+                  : `${status === "unknown" || status === "ready" ? `<button data-action="clear-hit" data-id="${acc.id}" class="rounded-full bg-success-soft hover:bg-success-soft text-success text-xs font-medium px-3 py-1.5">Mark available</button>` : ""}<button data-action="mark-hit" data-id="${acc.id}" class="inline-flex items-center gap-1 rounded-full bg-accent-soft hover:bg-accent-soft border border-blue-100 text-accent-ink text-xs font-medium px-3 py-1.5 transition-all active:scale-95" title="Estimate the reset from now using the configured cycle">${icon("clock", 12)} Log limit</button>
+                     <button data-action="toggle-reset-edit" data-id="${acc.id}" aria-label="Set exact reset time for ${escapeHtml(acc.email)}" class="p-1.5 rounded-full hover:bg-subtle transition-colors ${editingResetId === acc.id ? "text-blue-500" : "text-muted hover:text-blue-500"}" title="Set an exact reset date & time">${icon("calendar", 14)}</button>
+                     ${status === "locked" || status === "soon" ? `<button data-action="clear-hit" data-id="${acc.id}" aria-label="Mark ${escapeHtml(acc.email)} available" class="p-1.5 rounded-full text-muted hover:text-success hover:bg-success-soft transition-colors" title="Mark available and clear the timer">${icon("check", 13)}</button>` : ""}
+                     <button data-action="request-delete-account" data-id="${acc.id}" aria-label="Remove account ${escapeHtml(acc.email)}" class="p-1.5 rounded-full text-muted hover:text-red-500 hover:bg-danger-soft transition-colors" title="Remove account">${icon("trash", 13)}</button>`;
                 return `
-                  <div>
-                    <div class="flex items-center justify-between gap-3 border-t border-slate-200/60 px-5 py-3.5 flex-wrap hover:bg-white/40 transition-colors">
+                  <div data-account-row="${escapeHtml(acc.id)}" tabindex="-1">
+                    <div class="flex items-center justify-between gap-3 border-t border-line/60 px-5 py-3.5 flex-wrap hover:bg-surface/40 transition-colors">
                       <div class="flex items-center gap-3 min-w-0">
                         ${
                           bulkMode
-                            ? `<input type="checkbox" data-action="toggle-select" data-id="${acc.id}" ${selectedIds.has(acc.id) ? "checked" : ""} aria-label="Select ${escapeHtml(acc.email)}" class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-400 flex-shrink-0" />`
+                            ? `<input type="checkbox" data-action="toggle-select" data-id="${acc.id}" ${selectedIds.has(acc.id) ? "checked" : ""} aria-label="Select ${escapeHtml(acc.email)}" class="h-4 w-4 rounded border-line text-accent-ink focus:ring-blue-400 flex-shrink-0" />`
                             : `<span id="dot-${acc.id}" class="h-2.5 w-2.5 rounded-full flex-shrink-0 ${styles.dot}"></span>`
                         }
                         <div class="min-w-0">
-                          <div class="text-sm font-medium text-slate-900 truncate">${escapeHtml(acc.email)}</div>
-                          <div class="text-xs text-slate-400">
-                            Last used ${formatWhen(acc.lastHitAt)}
-                            ${acc.cycleValue ? `<span class="ml-1 text-slate-400">&middot; custom ${cycleLabel(acc.cycleValue, acc.cycleUnit)}</span>` : ""}
+                          <div class="text-sm font-medium text-ink truncate">${escapeHtml(acc.email)}</div>
+                          <div class="text-xs text-muted">
+                            Limit logged ${formatWhen(acc.lastHitAt)}
+                            ${acc.cycleValue ? `<span class="ml-1 text-muted">&middot; custom ${cycleLabel(acc.cycleValue, acc.cycleUnit)}</span>` : ""}
                           </div>
+                          ${acc.resetAt ? `<div class="text-xs text-muted mt-1">${acc.resetSource === "exact" ? "Recorded reset" : "Estimated reset"} · ${escapeHtml(formatWhen(acc.resetAt))}</div>` : ""}
                           ${
                             progress !== null
-                              ? `<div class="mt-1.5 h-1 w-32 max-w-full rounded-full bg-slate-200 overflow-hidden">
+                              ? `<div class="mt-1.5 h-1 w-32 max-w-full rounded-full bg-line overflow-hidden">
                                    <div id="progress-${acc.id}" class="h-full rounded-full ${status === "soon" ? "bg-orange-400" : "bg-slate-400"} transition-all" style="width:${progress.toFixed(1)}%"></div>
                                  </div>`
                               : ""
@@ -861,7 +928,7 @@ function render() {
                       </div>
                       <div class="flex items-center gap-2 flex-shrink-0">
                         <div class="text-right mr-1">
-                          <div id="countdown-${acc.id}" class="font-mono text-sm font-semibold tabular-nums ${styles.text}">${formatCountdown(acc, nowMs)}</div>
+                          <div id="countdown-${acc.id}" class="font-sans text-sm font-semibold tabular-nums ${styles.text}">${formatCountdown(acc, nowMs)}</div>
                           <div id="label-${acc.id}" class="text-xs ${styles.text}">${styles.label}</div>
                         </div>
                         ${actionButtons}
@@ -878,25 +945,27 @@ function render() {
         allAccountsForProvider.length === 0
           ? isPendingProviderDelete
             ? `<span class="flex items-center gap-1">
-                 <span class="text-xs text-red-600 font-medium">Remove tool?</span>
-                 <button data-action="confirm-delete-provider" data-id="${provider.id}" aria-label="Confirm remove ${escapeHtml(provider.name)}" class="p-1 rounded-full bg-red-500 hover:bg-red-600 text-white transition-colors">${icon("check", 12)}</button>
-                 <button data-action="cancel-delete-provider" data-id="${provider.id}" aria-label="Cancel remove ${escapeHtml(provider.name)}" class="p-1 rounded-full bg-white hover:bg-slate-100 text-slate-500 transition-colors">${icon("x", 12)}</button>
+                 <span class="text-xs text-danger font-medium">Remove tool?</span>
+                 <button data-action="confirm-delete-provider" data-id="${provider.id}" aria-label="Confirm remove ${escapeHtml(provider.name)}" class="p-1 rounded-full bg-danger-soft0 hover:bg-red-600 text-white transition-colors">${icon("check", 12)}</button>
+                 <button data-action="cancel-delete-provider" data-id="${provider.id}" aria-label="Cancel remove ${escapeHtml(provider.name)}" class="p-1 rounded-full bg-surface hover:bg-subtle text-muted transition-colors">${icon("x", 12)}</button>
                </span>`
-            : `<button data-action="request-delete-provider" data-id="${provider.id}" aria-label="Remove tool ${escapeHtml(provider.name)}" class="p-1 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Remove tool">${icon("trash", 13)}</button>`
+            : `<button data-action="request-delete-provider" data-id="${provider.id}" aria-label="Remove tool ${escapeHtml(provider.name)}" class="p-1 rounded-full text-muted hover:text-red-500 hover:bg-danger-soft transition-colors" title="Remove tool">${icon("trash", 13)}</button>`
           : "";
 
       return `
-        <div class="rounded-3xl bg-white/60 backdrop-blur-xl ring-1 ring-black/5 shadow-lg overflow-hidden">
-          <div class="flex items-center justify-between gap-2 bg-white/40 border-b border-slate-200/60 px-5 py-3.5 flex-wrap">
+        <div class="rounded-3xl bg-surface/80 ring-1 ring-line shadow-sm overflow-hidden">
+          <div class="flex items-center justify-between gap-2 bg-surface/40 border-b border-line/60 px-5 py-3.5 flex-wrap">
             <div class="flex items-center gap-3">
-              <span class="text-base font-semibold text-slate-800">${escapeHtml(provider.name)}</span>
+              <span class="text-section font-semibold text-ink">${escapeHtml(provider.name)}</span>
               ${cycleBadge}
             </div>
             <div class="flex items-center gap-3">
-              <span id="provider-count-${provider.id}" class="text-xs text-slate-400">${allAccountsForProvider.length === 0 ? "no accounts" : `${openCount}/${allAccountsForProvider.length} open`}</span>
+              <span id="provider-count-${provider.id}" class="text-xs text-muted">${allAccountsForProvider.length === 0 ? "no accounts" : `${openCount}/${allAccountsForProvider.length} marked available`}</span>
+              <button data-action="add-account-to-provider" data-id="${escapeHtml(provider.id)}" aria-label="Add account to ${escapeHtml(provider.name)}" aria-expanded="${showAddAccount && addAccountProviderId === provider.id}" class="inline-flex items-center gap-1.5 rounded-full bg-accent-soft hover:bg-accent-soft text-accent-ink text-xs font-medium px-3 py-2 transition-colors">${icon("plus", 14)} Add account</button>
               ${providerDeleteControl}
             </div>
           </div>
+          ${showAddAccount && addAccountProviderId === provider.id ? renderAccountForm(provider) : ""}
           ${accountRows}
         </div>
       `;
@@ -904,86 +973,61 @@ function render() {
     .join("");
 
   document.getElementById("app").innerHTML = `
-    <div class="relative min-h-screen overflow-hidden bg-gradient-to-br from-blue-50 via-white to-purple-50 p-4 sm:p-8">
-      <div class="pointer-events-none absolute -top-24 -left-24 h-96 w-96 rounded-full bg-blue-300/30 blur-3xl"></div>
-      <div class="pointer-events-none absolute -bottom-24 -right-24 h-96 w-96 rounded-full bg-purple-300/30 blur-3xl"></div>
-      <div class="pointer-events-none absolute top-1/3 right-0 h-72 w-72 rounded-full bg-pink-200/30 blur-3xl"></div>
-
+    <div class="relative min-h-screen overflow-hidden bg-canvas p-4 sm:p-8">
       <div class="relative z-10 max-w-3xl mx-auto">
-        <div class="flex items-start justify-between gap-4 pb-6 mb-6 border-b border-slate-200/70 flex-wrap">
+        ${persistenceError ? `<div role="alert" class="mb-4 rounded-2xl bg-danger-soft border border-danger text-danger p-4 text-sm">${escapeHtml(persistenceError)}</div>` : ""}
+        <div class="flex items-start justify-between gap-4 pb-6 mb-6 border-b border-line/70 flex-wrap">
           <div class="flex items-center gap-3">
             <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/30 text-white">${icon("clock", 20)}</div>
             <div>
-              <h1 class="text-2xl font-semibold tracking-tight text-slate-900">LimitTrack</h1>
-              <p id="summary-text" class="text-sm text-slate-500 mt-0.5">${totalAccounts === 0 ? "No accounts yet" : `${openAccounts} of ${totalAccounts} open now`}</p>
+              <h1 class="text-2xl font-semibold tracking-tight text-ink">LimitTrack</h1>
+              <p id="summary-text" class="text-sm text-muted mt-0.5">${totalAccounts === 0 ? "Your next session, a little clearer." : `${openAccounts} of ${totalAccounts} marked available`}</p>
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <div class="rounded-2xl bg-white/60 backdrop-blur-md px-4 py-2.5 shadow-sm ring-1 ring-black/5 text-right">
-              <div id="clock-time" class="font-mono text-xl font-semibold tabular-nums text-slate-900">${now.toLocaleTimeString(undefined, { hour12: false })}</div>
-              <div id="clock-date" class="text-xs text-slate-500">${now.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</div>
+            <div class="rounded-2xl bg-surface/60 backdrop-blur-md px-4 py-2.5 shadow-sm ring-1 ring-line text-right">
+              <div class="text-xs text-muted">Next reset</div>
+              <div id="next-reset-countdown" class="text-xl font-semibold tabular-nums text-ink">${next ? formatCountdown(next, nowMs) : "No active timers"}</div>
+              <div id="next-reset-tool" class="text-xs text-muted">${next ? escapeHtml(nextProvider ? nextProvider.name : "Account") : "Recorded locally"}</div>
             </div>
-            <button data-action="toggle-about" aria-label="About LimitTrack" aria-haspopup="dialog" class="h-9 w-9 flex items-center justify-center rounded-full bg-white/60 backdrop-blur-md hover:bg-white text-slate-400 hover:text-blue-500 shadow-sm ring-1 ring-black/5 transition-colors" title="About LimitTrack">${icon("info", 16)}</button>
+            <button data-action="toggle-about" aria-label="About LimitTrack" aria-haspopup="dialog" class="h-9 w-9 flex items-center justify-center rounded-full bg-surface/60 backdrop-blur-md hover:bg-surface text-muted hover:text-blue-500 shadow-sm ring-1 ring-line transition-colors" title="About LimitTrack">${icon("info", 16)}</button>
           </div>
         </div>
 
         <div class="flex flex-wrap items-center gap-2 mb-4">
           <button data-action="toggle-add-account" class="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white text-sm font-medium px-4 py-2 shadow-md shadow-blue-500/30 transition-all active:scale-95">${icon("plus", 16)} Add account</button>
-          <button data-action="toggle-add-provider" class="inline-flex items-center gap-1.5 rounded-full bg-white/70 backdrop-blur-md hover:bg-white text-slate-700 text-sm font-medium px-4 py-2 shadow-sm ring-1 ring-black/5 transition-all active:scale-95">${icon("plus", 16)} Add tool</button>
-          <button data-action="toggle-bulk-mode" aria-pressed="${bulkMode}" class="inline-flex items-center gap-1.5 rounded-full ${bulkMode ? "bg-blue-100 text-blue-700 ring-1 ring-blue-200" : "bg-white/70 backdrop-blur-md hover:bg-white text-slate-700 ring-1 ring-black/5"} text-sm font-medium px-4 py-2 shadow-sm transition-all active:scale-95">${icon("checkSquare", 16)} ${bulkMode ? "Cancel select" : "Select"}</button>
+          <button data-action="toggle-add-provider" class="inline-flex items-center gap-1.5 rounded-full bg-surface/70 backdrop-blur-md hover:bg-surface text-ink text-sm font-medium px-4 py-2 shadow-sm ring-1 ring-line transition-all active:scale-95">${icon("plus", 16)} Add tool</button>
+          <button data-action="toggle-bulk-mode" aria-pressed="${bulkMode}" class="inline-flex items-center gap-1.5 rounded-full ${bulkMode ? "bg-accent-soft text-accent-ink ring-1 ring-blue-200" : "bg-surface/70 backdrop-blur-md hover:bg-surface text-ink ring-1 ring-line"} text-sm font-medium px-4 py-2 shadow-sm transition-all active:scale-95">${icon("checkSquare", 16)} ${bulkMode ? "Cancel select" : "Select"}</button>
           <div class="flex-1"></div>
-          <button data-action="toggle-sort" title="Toggle sort order" aria-label="Sort accounts by ${sortMode === "soonest" ? "email A-Z" : "soonest reset"}" class="inline-flex items-center gap-1.5 rounded-full bg-white/70 backdrop-blur-md hover:bg-white text-slate-600 text-xs font-medium px-3 py-2 shadow-sm ring-1 ring-black/5 transition-all active:scale-95">${icon("sort", 14)} ${sortMode === "soonest" ? "Soonest first" : "A–Z"}</button>
+          <button data-action="toggle-sort" title="Toggle sort order" aria-label="Sort accounts by ${sortMode === "soonest" ? "email A-Z" : "soonest reset"}" class="inline-flex items-center gap-1.5 rounded-full bg-surface/70 backdrop-blur-md hover:bg-surface text-muted text-xs font-medium px-3 py-2 shadow-sm ring-1 ring-line transition-all active:scale-95">${icon("sort", 14)} ${sortMode === "soonest" ? "Soonest first" : "A–Z"}</button>
           <div class="relative">
-            <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">${icon("search", 14)}</span>
-            <input type="text" data-field="search-query" value="${escapeHtml(searchQuery)}" placeholder="Search accounts... (/)" aria-label="Search accounts" class="w-44 sm:w-56 bg-white/70 backdrop-blur-md border border-slate-200 rounded-full pl-9 pr-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
+            <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted">${icon("search", 14)}</span>
+            <input type="text" data-field="search-query" value="${escapeHtml(searchQuery)}" placeholder="Search accounts... (/)" aria-label="Search accounts" class="w-44 sm:w-56 bg-surface/70 backdrop-blur-md border border-line rounded-full pl-9 pr-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
           </div>
+          <select data-field="status-filter" aria-label="Filter by status" class="bg-surface border border-line rounded-full px-3 py-2 text-xs text-ink">
+            ${[["all", "All statuses"], ["open", "Marked available"], ["waiting", "Waiting"], ["ready", "Expected ready"], ["unknown", "Not checked"]].map(([value, label]) => `<option value="${value}" ${statusFilter === value ? "selected" : ""}>${label}</option>`).join("")}
+          </select>
         </div>
 
         ${
           bulkMode
-            ? `<div class="mb-6 flex flex-wrap items-center gap-3 rounded-2xl bg-blue-50/80 ring-1 ring-blue-100 px-4 py-2.5">
-                 <span class="text-sm text-blue-800">${selectedIds.size} selected</span>
-                 <button data-action="bulk-mark-hit" ${selectedIds.size === 0 ? "disabled" : ""} class="inline-flex items-center gap-1.5 rounded-full bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium px-3 py-1.5 transition-all active:scale-95">${icon("clock", 12)} Log hit for selected</button>
+            ? `<div class="mb-6 flex flex-wrap items-center gap-3 rounded-2xl bg-accent-soft/80 ring-1 ring-blue-100 px-4 py-2.5">
+                 <span class="text-sm text-accent-ink">${selectedIds.size} selected</span>
+                 <button data-action="bulk-mark-hit" ${selectedIds.size === 0 ? "disabled" : ""} class="inline-flex items-center gap-1.5 rounded-full bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium px-3 py-1.5 transition-all active:scale-95">${icon("clock", 12)} Log limit for selected</button>
                </div>`
             : ""
         }
 
-        ${
-          showAddAccount
-            ? `<div class="mb-6 rounded-2xl bg-white/70 backdrop-blur-xl ring-1 ring-black/5 shadow-lg p-4 sm:p-5">
-                <div class="grid gap-3 sm:grid-cols-2">
-                  <select data-field="new-account-provider" class="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 transition">
-                    <option value="">Select tool</option>
-                    ${providerOptions}
-                  </select>
-                  <input type="email" placeholder="account email" data-field="new-account-email" value="${escapeHtml(newAccountDraft.email)}" class="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
-                </div>
-                <div class="grid gap-3 sm:grid-cols-2 mt-3">
-                  <div class="flex items-center gap-2">
-                    <input type="number" min="1" placeholder="override cycle (optional)" data-field="new-account-cycle" value="${escapeHtml(newAccountDraft.cycleValue)}" class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
-                    <select data-field="new-account-cycle-unit" class="bg-white border border-slate-200 rounded-xl px-2 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 transition">
-                      <option value="days" ${newAccountDraft.cycleUnit === "days" ? "selected" : ""}>days</option>
-                      <option value="hours" ${newAccountDraft.cycleUnit === "hours" ? "selected" : ""}>hours</option>
-                    </select>
-                  </div>
-                  <div class="text-xs text-slate-400 flex items-center px-1">Leave blank to use the tool's default cycle above.</div>
-                </div>
-                <div class="flex gap-2 mt-3">
-                  <button data-action="save-add-account" class="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white text-sm font-medium px-4 py-2 shadow-sm shadow-blue-500/30 transition-all active:scale-95">${icon("check", 14)} Save</button>
-                  <button data-action="cancel-add-account" class="inline-flex items-center gap-1.5 rounded-full bg-white border border-slate-200 hover:bg-slate-50 text-slate-500 text-sm px-4 py-2 transition-all active:scale-95">${icon("x", 14)} Cancel</button>
-                </div>
-              </div>`
-            : ""
-        }
+        ${showAddAccount && !addAccountProviderId ? `<div class="mb-6">${renderAccountForm()}</div>` : ""}
 
         ${
           showAddProvider
-            ? `<div class="mb-6 rounded-2xl bg-white/70 backdrop-blur-xl ring-1 ring-black/5 shadow-lg p-4 sm:p-5">
+            ? `<div class="mb-6 rounded-2xl bg-surface/70 backdrop-blur-xl ring-1 ring-line shadow-lg p-4 sm:p-5">
                 <div class="grid gap-3 sm:grid-cols-2">
-                  <input type="text" placeholder="tool name (e.g. Cursor)" data-field="new-provider-name" value="${escapeHtml(newProviderDraft.name)}" class="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
+                  <input type="text" placeholder="tool name (e.g. Cursor)" data-field="new-provider-name" value="${escapeHtml(newProviderDraft.name)}" class="bg-surface border border-line rounded-xl px-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
                   <div class="flex items-center gap-2">
-                    <input type="number" min="1" placeholder="reset cycle" data-field="new-provider-cycle" value="${escapeHtml(newProviderDraft.cycleValue)}" class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
-                    <select data-field="new-provider-cycle-unit" class="bg-white border border-slate-200 rounded-xl px-2 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 transition">
+                    <input type="number" min="0.01" max="100000" step="any" placeholder="reset cycle" data-field="new-provider-cycle" value="${escapeHtml(newProviderDraft.cycleValue)}" class="w-full bg-surface border border-line rounded-xl px-3 py-2 text-sm text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-blue-400 transition" />
+                    <select data-field="new-provider-cycle-unit" class="bg-surface border border-line rounded-xl px-2 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-blue-400 transition">
                       <option value="days" ${newProviderDraft.cycleUnit === "days" ? "selected" : ""}>days</option>
                       <option value="hours" ${newProviderDraft.cycleUnit === "hours" ? "selected" : ""}>hours</option>
                     </select>
@@ -991,7 +1035,7 @@ function render() {
                 </div>
                 <div class="flex gap-2 mt-3">
                   <button data-action="save-add-provider" class="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white text-sm font-medium px-4 py-2 shadow-sm shadow-blue-500/30 transition-all active:scale-95">${icon("check", 14)} Save</button>
-                  <button data-action="cancel-add-provider" class="inline-flex items-center gap-1.5 rounded-full bg-white border border-slate-200 hover:bg-slate-50 text-slate-500 text-sm px-4 py-2 transition-all active:scale-95">${icon("x", 14)} Cancel</button>
+                  <button data-action="cancel-add-provider" class="inline-flex items-center gap-1.5 rounded-full bg-surface border border-line hover:bg-canvas text-muted text-sm px-4 py-2 transition-all active:scale-95">${icon("x", 14)} Cancel</button>
                 </div>
               </div>`
             : ""
@@ -1005,35 +1049,36 @@ function render() {
       ${
         showAbout
           ? `<div data-action="close-about" style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,0.4);backdrop-filter:blur(4px);padding:1rem;">
-              <div id="about-modal" role="dialog" aria-modal="true" aria-labelledby="about-modal-title" style="max-width:24rem;width:100%;border-radius:24px;background:rgba(255,255,255,0.97);box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);padding:1.5rem;">
+              <div id="about-modal" role="dialog" aria-modal="true" aria-labelledby="about-modal-title" style="max-width:24rem;width:100%;border-radius:24px;background:rgb(var(--surface) / 0.98);box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);padding:1.5rem;">
                 <div class="flex items-center gap-3 mb-4">
                   <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/30">${icon("clock", 22)}</div>
                   <div>
-                    <div id="about-modal-title" class="text-lg font-semibold text-slate-900">LimitTrack</div>
-                    <div class="text-xs text-slate-400">Version 1.0.0</div>
+                    <div id="about-modal-title" class="text-lg font-semibold text-ink">LimitTrack</div>
+                    <div class="text-xs text-muted">Version 1.2.0</div>
                   </div>
                 </div>
-                <p class="text-sm text-slate-600 mb-5">Tracks reset times for rate-limited AI coding tool accounts (Antigravity, Codex, Claude Code, and more) across multiple emails, so you never have to check manually again.</p>
-                <div class="border-t border-slate-200/70 pt-4 pb-4">
-                  <div class="text-xs uppercase tracking-wide text-slate-400 mb-2">Data</div>
+                <p class="text-sm text-muted mb-5">Tracks reset times for rate-limited AI coding tool accounts (Antigravity, Codex, Claude Code, and more) across multiple emails, so you never have to check manually again.</p>
+                <div class="border-t border-line/70 pt-4 pb-4">
+                  <div class="text-xs uppercase tracking-wide text-muted mb-2">Data</div>
                   <div class="flex flex-wrap gap-2">
-                    <button data-action="export-backup" class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium px-3 py-1.5 transition-colors">${icon("download", 13)} Export backup</button>
-                    <button data-action="trigger-import" class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium px-3 py-1.5 transition-colors">${icon("upload", 13)} Import backup</button>
+                    <button data-action="export-backup" class="inline-flex items-center gap-1.5 rounded-full bg-subtle hover:bg-line text-ink text-xs font-medium px-3 py-1.5 transition-colors">${icon("download", 13)} Export backup</button>
+                    <button data-action="trigger-import" class="inline-flex items-center gap-1.5 rounded-full bg-subtle hover:bg-line text-ink text-xs font-medium px-3 py-1.5 transition-colors">${icon("upload", 13)} Import backup</button>
                     <input type="file" id="import-file-input" accept="application/json,.json" style="display:none;" />
                   </div>
+                  ${pendingImport ? `<div class="mt-3 rounded-xl bg-accent-soft p-3 text-sm text-ink"><p>Replace your current ${state.accounts.length} accounts with ${pendingImport.accounts.length} accounts across ${pendingImport.providers.length} tools? A local recovery copy will be saved first.</p><div class="flex gap-2 mt-3"><button data-action="confirm-import" class="rounded-full bg-blue-600 text-white px-3 py-2 text-xs font-medium">Replace accounts</button><button data-action="cancel-import" class="rounded-full bg-surface border border-line px-3 py-2 text-xs">Cancel import</button></div></div>` : ""}
                 </div>
-                <div class="border-t border-slate-200/70 pt-4">
-                  <div class="text-xs uppercase tracking-wide text-slate-400 mb-2">Built by</div>
-                  <div class="text-sm font-medium text-slate-900">Abdul Rehman</div>
-                  <div class="text-xs text-slate-500 mb-3">Founder &amp; CEO of Stayza · CS student at NUST</div>
+                <div class="border-t border-line/70 pt-4">
+                  <div class="text-xs uppercase tracking-wide text-muted mb-2">Built by</div>
+                  <div class="text-sm font-medium text-ink">Abdul Rehman</div>
+                  <div class="text-xs text-muted mb-3">Founder &amp; CEO of Stayza · CS student at NUST</div>
                   <div class="flex flex-wrap gap-2">
-                    <a href="https://iamabdulrehman.vercel.app" target="_blank" class="rounded-full bg-blue-50 hover:bg-blue-100 border border-blue-100 text-blue-700 text-xs font-medium px-3 py-1.5 transition-colors">Portfolio</a>
-                    <a href="https://github.com/rehmanoncloud9" target="_blank" class="rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium px-3 py-1.5 transition-colors">GitHub</a>
-                    <a href="https://www.linkedin.com/in/arehman-builds" target="_blank" class="rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium px-3 py-1.5 transition-colors">LinkedIn</a>
-                    <a href="mailto:relentlessrehman@gmail.com" class="rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium px-3 py-1.5 transition-colors">Email</a>
+                    <a href="https://iamabdulrehman.vercel.app" target="_blank" class="rounded-full bg-accent-soft hover:bg-accent-soft border border-blue-100 text-accent-ink text-xs font-medium px-3 py-1.5 transition-colors">Portfolio</a>
+                    <a href="https://github.com/rehmanoncloud9" target="_blank" class="rounded-full bg-subtle hover:bg-line text-ink text-xs font-medium px-3 py-1.5 transition-colors">GitHub</a>
+                    <a href="https://www.linkedin.com/in/arehman-builds" target="_blank" class="rounded-full bg-subtle hover:bg-line text-ink text-xs font-medium px-3 py-1.5 transition-colors">LinkedIn</a>
+                    <a href="mailto:relentlessrehman@gmail.com" class="rounded-full bg-subtle hover:bg-line text-ink text-xs font-medium px-3 py-1.5 transition-colors">Email</a>
                   </div>
                 </div>
-                <button data-action="close-about" class="mt-5 w-full rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-medium py-2 transition-all active:scale-95">Close</button>
+                <button data-action="close-about" class="mt-5 w-full rounded-full bg-subtle hover:bg-line text-muted text-sm font-medium py-2 transition-all active:scale-95">Close</button>
               </div>
             </div>`
           : ""
@@ -1045,7 +1090,7 @@ function render() {
                <span>${escapeHtml(toast.message)}</span>
                ${
                  lastDeleted
-                   ? `<button data-action="toast-undo" class="inline-flex items-center gap-1 rounded-full bg-white/15 hover:bg-white/25 text-white text-xs font-medium px-2.5 py-1 transition-colors">${icon("undo", 12)} Undo</button>`
+                   ? `<button data-action="toast-undo" class="inline-flex items-center gap-1 rounded-full bg-surface/15 hover:bg-surface/25 text-white text-xs font-medium px-2.5 py-1 transition-colors">${icon("undo", 12)} Undo</button>`
                    : ""
                }
              </div>`
@@ -1061,10 +1106,13 @@ function tick() {
   const now = new Date();
   const nowMs = now.getTime();
 
-  const clockEl = document.getElementById("clock-time");
-  if (clockEl) clockEl.textContent = now.toLocaleTimeString(undefined, { hour12: false });
-  const dateEl = document.getElementById("clock-date");
-  if (dateEl) dateEl.textContent = now.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  const next = state.accounts.filter((a) => ["locked", "soon"].includes(getStatus(a, nowMs)))
+    .sort((a, b) => effectiveTime(a, nowMs) - effectiveTime(b, nowMs))[0];
+  const provider = next && state.providers.find((p) => p.id === next.providerId);
+  const nextEl = document.getElementById("next-reset-countdown");
+  if (nextEl) nextEl.textContent = next ? formatCountdown(next, nowMs) : "No active timers";
+  const nextToolEl = document.getElementById("next-reset-tool");
+  if (nextToolEl) nextToolEl.textContent = next ? (provider ? provider.name : "Account") : "Recorded locally";
 
   let needsReorder = false;
   const newStatuses = {};
@@ -1073,16 +1121,6 @@ function tick() {
     newStatuses[acc.id] = status;
     const prev = prevStatus[acc.id];
     if (prev !== undefined && prev !== status) needsReorder = true;
-    if ((prev === "locked" || prev === "soon") && status === "open") {
-      const provider = state.providers.find((p) => p.id === acc.providerId);
-      try {
-        new Notification(`${acc.email} is open`, {
-          body: `${provider ? provider.name : "Account"} limit has reset.`,
-        });
-      } catch (e) {
-        // notifications unavailable on this platform
-      }
-    }
   });
 
   const editingOpen = Boolean(editingResetId || editingProviderId || showAddAccount || showAddProvider);
@@ -1103,7 +1141,7 @@ function tick() {
     const dotEl = document.getElementById(`dot-${acc.id}`);
     if (countdownEl) {
       countdownEl.textContent = formatCountdown(acc, nowMs);
-      countdownEl.className = `font-mono text-sm font-semibold tabular-nums ${styles.text}`;
+      countdownEl.className = `font-sans text-sm font-semibold tabular-nums ${styles.text}`;
     }
     if (labelEl) {
       labelEl.textContent = styles.label;
@@ -1122,14 +1160,14 @@ function tick() {
   const summaryEl = document.getElementById("summary-text");
   if (summaryEl) {
     const openCount = state.accounts.filter((a) => newStatuses[a.id] === "open").length;
-    summaryEl.textContent = state.accounts.length === 0 ? "No accounts yet" : `${openCount} of ${state.accounts.length} open now`;
+    summaryEl.textContent = state.accounts.length === 0 ? "Your next session, a little clearer." : `${openCount} of ${state.accounts.length} marked available`;
   }
 
   state.providers.forEach((p) => {
     const accts = state.accounts.filter((a) => a.providerId === p.id);
     const oc = accts.filter((a) => newStatuses[a.id] === "open").length;
     const el = document.getElementById(`provider-count-${p.id}`);
-    if (el) el.textContent = accts.length === 0 ? "no accounts" : `${oc}/${accts.length} open`;
+    if (el) el.textContent = accts.length === 0 ? "no accounts" : `${oc}/${accts.length} marked available`;
   });
 
   updateTrayTooltip(nowMs, newStatuses);
@@ -1145,14 +1183,14 @@ function updateTrayTooltip(nowMs, statuses) {
   } else {
     const openCount = state.accounts.filter((a) => statuses[a.id] === "open").length;
     const waiting = state.accounts
-      .filter((a) => statuses[a.id] !== "open")
+      .filter((a) => ["locked", "soon"].includes(statuses[a.id]))
       .sort((a, b) => effectiveTime(a, nowMs) - effectiveTime(b, nowMs));
     if (waiting.length === 0) {
-      text = `LimitTrack: all ${state.accounts.length} accounts open`;
+      text = `LimitTrack: ${openCount} marked available · No active timers`;
     } else {
       const next = waiting[0];
       const provider = state.providers.find((p) => p.id === next.providerId);
-      text = `LimitTrack: ${openCount}/${state.accounts.length} open · ${provider ? provider.name : "next"} opens in ${formatCountdown(next, nowMs)}`;
+      text = `LimitTrack: ${openCount} marked available · ${provider ? provider.name : "Next reset"} in ${formatCountdown(next, nowMs)}`;
     }
   }
   window.limittrack.trayUpdate(text);
@@ -1162,6 +1200,24 @@ function updateTrayTooltip(nowMs, statuses) {
 
 window.addEventListener("DOMContentLoaded", () => {
   attachEvents();
+  if (window.limittrack.onStorageChanged) {
+    window.limittrack.onStorageChanged((key) => {
+      if (key === STORAGE_KEY) loadState(true);
+    });
+  }
+  if (window.limittrack.onAccountReveal) {
+    window.limittrack.onAccountReveal(async (accountId) => {
+      searchQuery = "";
+      statusFilter = "all";
+      await loadState();
+      const row = [...document.querySelectorAll("[data-account-row]")]
+        .find((el) => el.dataset.accountRow === accountId);
+      if (row) {
+        row.focus({ preventScroll: true });
+        row.scrollIntoView({ block: "center", behavior: "auto" });
+      }
+    });
+  }
   render();
   loadState();
   setInterval(tick, 1000);

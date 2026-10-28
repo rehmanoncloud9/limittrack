@@ -6,30 +6,14 @@
     <title>LimitTrack</title>
     <link rel="icon" type="image/png" href="icon.png" />
     <link rel="shortcut icon" href="favicon.ico" />
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-        min-height: 100%;
-      }
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      }
-      /* Visible keyboard focus indicator for accessibility */
-      button:focus-visible,
-      a:focus-visible,
-      input:focus-visible,
-      select:focus-visible,
-      [tabindex]:focus-visible {
-        outline: 2px solid #3b82f6;
-        outline-offset: 2px;
-      }
-    </style>
+    <link rel="preload" href="assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="typography.css" />
+    <link rel="stylesheet" href="app.css" />
   </head>
   <body>
     <div id="app"></div>
+    <script src="domain.js"></script>
+    <script src="state-client.js"></script>
     <script src="renderer.js"></script>
   </body>
 </html>
