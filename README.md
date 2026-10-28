@@ -23,7 +23,7 @@ If you juggle multiple email accounts across AI coding tools like **Antigravity*
 
 - **Multi-tool, multi-account:** track as many email accounts as you want, across as many tools as you want, each with its own reset cycle
 - **Add accounts in context:** add directly inside a tool section with the tool already selected; use "Add & add another" to enter several accounts in succession
-- **Floating reset overview:** keep the next estimated reset visible alongside a compact account list, with light/dark appearance and reduced-motion support
+- **Desktop reset overview:** see the next estimated reset alongside a compact account list, with light/dark appearance and reduced-motion support
 - **Tool-specific widget:** open Widgets, choose All tools or one tool, then turn on Show desktop widget. Your choice is remembered across restarts
 - **Quick limit logging:** click "Log limit" to start an estimated reset countdown, with undo for accidental changes
 - **Honest status:** distinguish accounts you marked available, elapsed reset timers, active cooldowns, and accounts you have not checked
@@ -38,7 +38,7 @@ If you juggle multiple email accounts across AI coding tools like **Antigravity*
 ## Find your way around
 
 - **Accounts:** add an account inside its tool section. Each row shows its status and one main action; use the More menu for details and additional actions.
-- **Widgets:** choose the tool to display and enable **Show desktop widget**. Drag the widget header to move it. Closing it hides it; enable it here to bring it back. The widget's Configure button opens this page.
+- **Widgets:** choose the tool to display and enable **Show desktop widget**. Drag the widget header to move it. Closing it hides it; enable it here to bring it back. On Windows, the widget appears while the desktop or widget is active and hides when you switch to an app. It never stays above your applications. The widget's Configure button opens this page.
 - **Settings:** change **Theme** and **Font**, or export and restore backups. Choices are saved locally.
 
 ## Download

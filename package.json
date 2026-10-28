@@ -1,12 +1,13 @@
 {
   "name": "limittrack",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Track reset times for rate-limited coding tool accounts (Antigravity, Codex, Claude Code, and more) across multiple emails, with live countdowns and native desktop notifications.",
   "main": "main.js",
   "scripts": {
+    "prestart": "node scripts/build-native.js",
     "start": "electron .",
-    "build": "electron-builder",
-    "build:win": "electron-builder --win",
+    "build": "node scripts/build-native.js && electron-builder",
+    "build:win": "node scripts/build-native.js && electron-builder --win",
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
     "build:styles": "npx --yes --package tailwindcss@3.4.17 tailwindcss -c tailwind.config.js -i styles.input.css -o app.css --minify",
@@ -48,6 +49,7 @@
       "domain.js",
       "state-client.js",
       "store.js",
+      "desktop-visibility.js",
       "app.css",
       "typography.css",
       "appearance.css",
@@ -69,6 +71,7 @@
       "provider": "github"
     },
     "win": {
+      "extraResources": [{ "from": "native/build/desktop-observer.exe", "to": "native/desktop-observer.exe" }],
       "target": [
         "nsis",
         "portable"

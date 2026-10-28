@@ -1,14 +1,14 @@
-# LimitTrack v1.2.1
+# LimitTrack v1.2.2
 
-A calmer interface with visible widget setup and appearance controls.
+Fixes the desktop widget covering other applications.
 
-- Separate Accounts, Widgets, and Settings screens make common tasks easier to find.
-- Native system typography is the default, with simpler sizing and spacing. Optional bundled Inter is available in Settings.
-- Choose System, Light, or Dark in Settings. Theme and font choices persist and apply to the desktop widget too.
-- Configure the widget from Widgets: choose one tool or All tools, then enable Show desktop widget. Drag its header to move it; closing it hides it. Its Configure button returns to setup.
-- Account rows show their email, status, and one main action. More contains secondary actions and Details reveals timestamps when needed.
-- Add accounts inside a tool section without selecting the tool repeatedly. Search, filters, reset editing, undo, and backup/restore remain available.
+- Removed always-on-top behavior and focus stealing when the widget opens.
+- On Windows, the widget appears when the desktop or widget is active and hides when you switch to an application. Return to the desktop to see it again.
+- macOS and Linux use the platform desktop window type; behavior depends on the desktop/window manager.
+- Removed the request to show the widget over full-screen spaces.
+- Windows desktop detection uses a small bundled native helper built from source. No PowerShell execution-policy changes or shell modifications are required.
+- If desktop detection is unavailable, the widget stays hidden and Widgets shows a retry message. Tool selection and visibility preferences are preserved.
 
-Windows: use the Setup executable to install, or the other executable for the portable app. macOS: use the DMG. Linux: use the AppImage or DEB.
+All appearance, account, backup, and reset-tracking features from v1.2.1 remain available. Automated checks cover window configuration, desktop/app transitions, off-switch behavior, detection failure, retry, and observer cleanup. The helper is compiled and smoke-tested during the Windows build; native visual verification remains a separate platform check.
 
-Data remains local. Reset times are recorded or estimated; LimitTrack does not measure provider quota. Notifications require the app to be running. Installers are unsigned.
+Windows: use the Setup executable to install, or the other executable for the portable app. macOS: use the DMG. Linux: use the AppImage or DEB. Installers are unsigned.

@@ -7,7 +7,7 @@ const os = require("node:os");
 const vm = require("node:vm");
 const D = require("../domain");
 
-async function harness(t, data) {
+async function harness(t, data, platform = process.platform) {
   const temporaryRoot = process.env.LIMITTRACK_TEST_TMP || os.tmpdir();
   fs.mkdirSync(temporaryRoot, { recursive: true });
   const directory = fs.mkdtempSync(path.join(temporaryRoot, "limittrack-main-"));
@@ -26,20 +26,20 @@ async function harness(t, data) {
   Object.assign(app, { getPath: () => directory, requestSingleInstanceLock: () => true, whenReady: () => Promise.resolve(), setAppUserModelId() {}, quit() { app.quitCalled = true; } });
   class Window extends EventEmitter {
     constructor(options) {
-      super(); this.options = options; this.bounds = { x: 0, y: 0, width: options.width, height: options.height };
+      super(); this.options = options; this.visible = options.show !== false; this.bounds = { x: 0, y: 0, width: options.width, height: options.height };
       this.webContents = new EventEmitter();
       Object.assign(this.webContents, { id: windows.length + 1, mainFrame: {}, setWindowOpenHandler() {}, send: (...args) => { this.sent = args; } });
       windows.push(this);
     }
     static getAllWindows() { return windows; }
-    loadFile() {} show() { this.visible = true; } hide() { this.visible = false; }
+    loadFile() {} show() { this.visible = true; this.activated = true; } showInactive() { this.visible = true; } hide() { this.visible = false; }
     focus() {} isDestroyed() { return false; } isVisible() { return !!this.visible; }
-    setAlwaysOnTop() {} setVisibleOnAllWorkspaces() {}
+    setAlwaysOnTop(value) { this.onTop = value; } setVisibleOnAllWorkspaces() {}
     getBounds() { return this.bounds; } setBounds(bounds) { this.bounds = bounds; }
   }
   const ipcMain = new EventEmitter(); ipcMain.handle = (key, handler) => handlers.set(key, handler);
   const powerMonitor = new EventEmitter();
-  const controls = { failNotification: false };
+  const controls = { failNotification: false, desktopActive: true };
   class NativeNotification extends EventEmitter {
     constructor(options) { super(); this.options = options; notifications.push(this); }
     static isSupported() { return true; }
@@ -53,8 +53,14 @@ async function harness(t, data) {
     screen: { getDisplayNearestPoint: () => ({ workArea }), getPrimaryDisplay: () => ({ workArea }) },
     dialog: { showErrorBox: (...args) => dialogs.push(args), showMessageBox: (...args) => dialogs.push(args) },
   };
-  const context = vm.createContext({ require: (name) => name === "electron" ? electron : name === "./domain" ? D : name === "./store" ? require("../store") : require(name),
-    __dirname: path.resolve(__dirname, ".."), process, console, Date: Clock, setInterval: (callback) => { intervals.push(callback); return intervals.length; }, clearInterval() {}, setTimeout, clearTimeout });
+  const desktopVisibility = { watchDesktopVisibility: (_win, options) => {
+    controls.desktopChanged = options.onChange;
+    controls.desktopError = options.onError;
+    options.onChange(controls.desktopActive);
+    return () => { controls.desktopStopped = true; };
+  } };
+  const context = vm.createContext({ require: (name) => name === "./desktop-visibility" ? desktopVisibility : name === "electron" ? electron : name === "./domain" ? D : name === "./store" ? require("../store") : require(name),
+    __dirname: path.resolve(__dirname, ".."), process: { platform }, console, Date: Clock, setInterval: (callback) => { intervals.push(callback); return intervals.length; }, clearInterval() {}, setTimeout, clearTimeout });
   vm.runInContext(fs.readFileSync(require.resolve("../main"), "utf8"), context);
   await new Promise((resolve) => setImmediate(resolve));
   return { app, windows, notifications, handlers, dialogs, controls, powerMonitor, ipcMain,
@@ -150,22 +156,66 @@ test("appearance settings persist, merge independent updates, and reject invalid
 });
 
 test("widget setup controls visibility, handles hide-before-load, and opens widget configuration", async (t) => {
-  const app = await harness(t, dataWithTimer());
+  const app = await harness(t, dataWithTimer(), "win32");
   const update = app.handlers.get("preferences:update"), get = app.handlers.get("preferences:get");
   update(app.event(), { widgetVisible: true, widgetProviderId: "codex" });
   assert.equal(get(app.event()).widgetVisible, true);
   const widget = app.windows[1];
   assert.ok(widget);
+  assert.equal(widget.options.alwaysOnTop, false);
   update(app.event(), { widgetVisible: false });
   widget.webContents.emit("did-finish-load");
   widget.emit("ready-to-show");
   assert.equal(widget.visible, false);
   update(app.event(), { widgetVisible: true });
   assert.equal(widget.visible, true);
+  assert.notEqual(widget.activated, true, "showing the widget must not steal focus");
+  {
+    app.controls.desktopChanged(false);
+    assert.equal(widget.visible, false, "an active app hides the desktop widget");
+    app.controls.desktopChanged(true);
+    assert.equal(widget.visible, true, "returning to the desktop restores the widget");
+  }
   const event = { sender: widget.webContents, senderFrame: widget.webContents.mainFrame };
   app.ipcMain.emit("widget:open-settings", event);
   assert.equal(app.windows[0].sent[0], "widgets:configure");
   app.ipcMain.emit("widget:hide", event);
   assert.equal(get(app.event()).widgetVisible, false);
   assert.equal(widget.visible, false);
+  {
+    app.controls.desktopChanged(true);
+    assert.equal(widget.visible, false, "desktop changes must not override the user's off switch");
+  }
 });
+
+test("desktop detection failure hides the widget and can be retried without losing the selected tool", async (t) => {
+  const app = await harness(t, dataWithTimer(), "win32");
+  const update = app.handlers.get("preferences:update"), get = app.handlers.get("preferences:get");
+  update(app.event(), { widgetVisible: true, widgetProviderId: "codex" });
+  const widget = app.windows[1];
+  widget.emit("ready-to-show");
+  assert.equal(widget.visible, true);
+  app.controls.desktopError(new Error("Desktop detection is unavailable."));
+  assert.equal(widget.visible, false);
+  assert.match(get(app.event()).widgetError, /unavailable/);
+  update(app.event(), { widgetVisible: false });
+  update(app.event(), { widgetVisible: true });
+  assert.equal(widget.visible, true);
+  assert.equal(get(app.event()).widgetError, "");
+  assert.equal(get(app.event()).widgetProviderId, "codex");
+  widget.emit("closed");
+  assert.equal(app.controls.desktopStopped, true);
+});
+
+for (const platform of ["darwin", "linux"]) {
+  test(`${platform} widget uses a desktop window without activating or covering apps`, async (t) => {
+    const app = await harness(t, dataWithTimer(), platform);
+    app.handlers.get("preferences:update")(app.event(), { widgetVisible: true });
+    const widget = app.windows[1];
+    widget.emit("ready-to-show");
+    assert.equal(widget.options.type, "desktop");
+    assert.equal(widget.options.alwaysOnTop, false);
+    assert.equal(widget.visible, true);
+    assert.notEqual(widget.activated, true);
+  });
+}

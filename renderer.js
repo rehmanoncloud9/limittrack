@@ -938,9 +938,9 @@ function renderAccounts(nowMs) {
 }
 
 function renderWidgets() {
-  return `<div class="page-heading"><div><h2>Widgets</h2><p class="help">Keep your accounts in view while you work.</p></div></div><div class="settings-stack"><section class="settings-card" id="widget-settings"><h3>Desktop widget</h3>
+  return `<div class="page-heading"><div><h2>Widgets</h2><p class="help">See your accounts when you return to the desktop.</p></div></div><div class="settings-stack"><section class="settings-card" id="widget-settings"><h3>Desktop widget</h3>${preferences.widgetError ? `<p class="alert" role="alert">${escapeHtml(preferences.widgetError)}</p>` : ""}
     <div class="setting-row"><div><div class="setting-label">Tool to show</div><p class="help">Track one tool, or see all accounts together.</p></div><select aria-label="Widget tool" data-setting="widgetProviderId" ${preferencesBusy ? "disabled" : ""}><option value="">All tools</option>${state.providers.map((p) => `<option value="${escapeHtml(p.id)}" ${preferences.widgetProviderId === p.id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}</select></div>
-    <div class="setting-row"><div><label class="toggle-label"><input type="checkbox" role="switch" aria-label="Show desktop widget" data-setting="widgetVisible" ${preferences.widgetVisible ? "checked" : ""} ${preferencesBusy ? "disabled" : ""} /><span class="setting-label">Show desktop widget</span></label><p class="help" style="margin-left:27px">${preferences.widgetVisible ? "On — the widget appears above your other windows." : "Off — enable it to place the widget on your desktop."}</p></div></div>
+    <div class="setting-row"><div><label class="toggle-label"><input type="checkbox" role="switch" aria-label="Show desktop widget" data-setting="widgetVisible" ${preferences.widgetVisible ? "checked" : ""} ${preferencesBusy ? "disabled" : ""} /><span class="setting-label">Show desktop widget</span></label><p class="help" style="margin-left:27px">${preferences.widgetVisible ? "On — return to your desktop to see the widget." : "Off — enable it to place the widget on your desktop."}</p></div></div>
     <p class="setup-note">Choose a tool, turn on the widget, then drag its header to move it. Closing the widget hides it; you can turn it back on here. Theme and font follow Settings.</p>
     <div class="settings-feedback" role="status">${preferencesBusy ? "Saving…" : preferencesMessage}</div>
   </section></div>`;
@@ -965,7 +965,7 @@ function render() {
     ${persistenceError ? `<div role="alert" class="alert">${escapeHtml(persistenceError)}</div>` : ""}${preferencesError ? `<div role="alert" class="alert">${escapeHtml(preferencesError)}</div>` : ""}
     <main>${activeView === "widgets" ? renderWidgets() : activeView === "settings" ? renderSettings() : renderAccounts(nowMs)}</main>
     ${toast ? `<div role="status" aria-live="polite" class="toast"><span>${escapeHtml(toast.message)}</span>${lastDeleted ? '<button data-action="toast-undo">Undo</button>' : ""}</div>` : ""}
-    ${showAbout ? `<div class="modal-backdrop" data-action="close-about"><div class="about-dialog" id="about-modal" role="dialog" aria-modal="true" aria-labelledby="about-modal-title"><h2 id="about-modal-title">LimitTrack</h2><p>Version 1.2.1</p><p>Recorded reset times for your AI coding accounts.</p><p>Built by Abdul Rehman.</p><p><a href="https://github.com/rehmanoncloud9/limittrack" target="_blank" rel="noreferrer">View project on GitHub</a></p><div class="button-row"><button class="button" data-action="close-about">Close</button></div></div></div>` : ""}
+    ${showAbout ? `<div class="modal-backdrop" data-action="close-about"><div class="about-dialog" id="about-modal" role="dialog" aria-modal="true" aria-labelledby="about-modal-title"><h2 id="about-modal-title">LimitTrack</h2><p>Version 1.2.2</p><p>Recorded reset times for your AI coding accounts.</p><p>Built by Abdul Rehman.</p><p><a href="https://github.com/rehmanoncloud9/limittrack" target="_blank" rel="noreferrer">View project on GitHub</a></p><div class="button-row"><button class="button" data-action="close-about">Close</button></div></div></div>` : ""}
   </div>`;
 }
 

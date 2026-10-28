@@ -28,6 +28,8 @@ The app runs straight from source, with the compiled stylesheet included. When c
 | `typography.css`, `assets/fonts/` | Native system typography, optional Inter Variable, and font license |
 | `appearance.css`, `ui.css`, `preferences.js` | Shared theme tokens, main layout, and persisted appearance/widget settings |
 | `widget.html`, `widget.js` | Floating reset overview and account actions |
+| `desktop-visibility.js`, `native/desktop-observer.cs` | Windows desktop activation observer; compiled locally with the system .NET Framework compiler, bundled outside ASAR |
+| `scripts/build-native.js` | Builds and smoke-checks the Windows helper before development startup and packaging |
 | `test/` | Node tests; Electron APIs are mocked rather than launching the user's app |
 | `build/icon.png` | Source icon used to generate platform installers |
 

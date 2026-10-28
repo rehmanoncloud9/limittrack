@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, screen, Not
 const path = require("path");
 const Domain = require("./domain");
 const { createStore } = require("./store");
+const { watchDesktopVisibility } = require("./desktop-visibility");
 
 const STORE_PATH = path.join(app.getPath("userData"), "limittrack-data.json");
 const localStore = createStore(STORE_PATH);
@@ -54,6 +55,7 @@ function getPreferences(data = readStore()) {
     font: ["system", "inter"].includes(saved.font) ? saved.font : "system",
     widgetVisible: !!data[WIDGET_VISIBLE_KEY],
     widgetProviderId: accountState(data).providers.some((p) => p.id === providerId) ? providerId : null,
+    widgetError: widgetDesktopError,
   };
 }
 
@@ -119,6 +121,10 @@ let tray;
 let widgetWindow = null;
 let widgetVisible = false;
 let widgetMenuItem = null;
+let widgetReady = false;
+let widgetDesktopAllowed = process.platform !== "win32";
+let widgetDesktopError = "";
+let stopDesktopMonitor = null;
 const activeNotifications = new Set();
 const pendingNotificationIds = new Set();
 let notificationRetryAfter = 0;
@@ -187,11 +193,27 @@ function createTray() {
   tray.on("click", () => mainWindow.show());
 }
 
-// ---------- floating widget window ----------
-// A small always-on-top, frameless "Live Activity"-style panel that mirrors
-// the main window's data. It's a fully separate BrowserWindow/renderer, so
-// it never touches mainWindow's state directly - the two stay in sync purely
-// through the shared local JSON store (see the storage:changed broadcast below).
+// ---------- desktop widget window ----------
+// Never take focus or float over applications. Windows desktop activation is
+// observed separately; macOS/Linux use their native desktop window type.
+
+function syncWidgetVisibility() {
+  if (!widgetWindow || widgetWindow.isDestroyed()) return;
+  const show = widgetVisible && widgetReady && widgetDesktopAllowed;
+  if (show && !widgetWindow.isVisible()) widgetWindow.showInactive();
+  else if (!show && widgetWindow.isVisible()) widgetWindow.hide();
+}
+
+function startDesktopMonitor() {
+  if (process.platform !== "win32" || stopDesktopMonitor || !widgetWindow) return;
+  widgetDesktopAllowed = false;
+  widgetDesktopError = "";
+  stopDesktopMonitor = watchDesktopVisibility(widgetWindow, {
+    helperPath: app.isPackaged ? path.join(process.resourcesPath, "native", "desktop-observer.exe") : path.join(__dirname, "native", "build", "desktop-observer.exe"),
+    onChange: (allowed) => { widgetDesktopAllowed = allowed; syncWidgetVisibility(); },
+    onError: (error) => { widgetDesktopAllowed = false; widgetDesktopError = error.message; syncWidgetVisibility(); broadcastPreferences(); },
+  });
+}
 
 function clampToWorkArea(x, y, width, height) {
   const display = screen.getDisplayNearestPoint({ x, y });
@@ -230,7 +252,8 @@ function createWidgetWindow() {
     maximizable: false,
     fullscreenable: false,
     skipTaskbar: true,
-    alwaysOnTop: true,
+    alwaysOnTop: false,
+    ...(process.platform !== "win32" ? { type: "desktop" } : {}),
     show: false,
     backgroundColor: "#00000000",
     icon: path.join(__dirname, "icon.png"),
@@ -241,15 +264,13 @@ function createWidgetWindow() {
     },
   });
 
-  widgetWindow.setAlwaysOnTop(true, "floating");
-  if (process.platform === "darwin") {
-    widgetWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  }
-
+  widgetReady = false;
+  startDesktopMonitor();
   widgetWindow.loadFile("widget.html");
 
   widgetWindow.once("ready-to-show", () => {
-    if (widgetVisible) widgetWindow.show();
+    widgetReady = true;
+    syncWidgetVisibility();
   });
 
   let moveSaveTimer = null;
@@ -267,6 +288,9 @@ function createWidgetWindow() {
   });
 
   widgetWindow.on("closed", () => {
+    stopDesktopMonitor?.();
+    stopDesktopMonitor = null;
+    widgetReady = false;
     widgetWindow = null;
   });
 }
@@ -286,21 +310,15 @@ function setWidgetVisible(visible, persist = true) {
   }
 
   if (visible) {
-    if (!widgetWindow) {
-      createWidgetWindow();
-      // If the window was already ready (unlikely on first create) show now;
-      // otherwise the ready-to-show handler above will show it.
-      if (widgetWindow && !widgetWindow.isVisible()) {
-        widgetWindow.webContents.once("did-finish-load", () => {
-          if (widgetWindow && widgetVisible) widgetWindow.show();
-        });
-      }
-    } else {
-      widgetWindow.show();
-    }
-  } else if (widgetWindow) {
-    widgetWindow.hide();
+    if (!widgetWindow) createWidgetWindow();
+    else startDesktopMonitor();
+  } else {
+    stopDesktopMonitor?.();
+    stopDesktopMonitor = null;
+    widgetDesktopAllowed = process.platform !== "win32";
+    widgetDesktopError = "";
   }
+  syncWidgetVisibility();
 
   if (widgetMenuItem) widgetMenuItem.checked = visible;
   broadcastPreferences();
@@ -335,6 +353,7 @@ app.whenReady().then(() => {
 
 app.on("before-quit", () => {
   app.isQuitting = true;
+  stopDesktopMonitor?.();
 });
 
 app.on("window-all-closed", () => {

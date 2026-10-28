@@ -10,6 +10,8 @@ The broader roadmap below remains a design target. Multiple limit windows, accou
 
 October 28 usability update: Accounts, Widgets, and Settings navigation replaces the crowded single screen. Widgets has a tool selector and visibility switch; its Configure action opens setup. Settings persists System/Light/Dark themes and System/Inter fonts across both windows. Native system typography is the default. Rows show one primary action; More and Details reveal secondary actions and timestamps. Backup controls live in Settings.
 
+Desktop behavior correction: the widget no longer stays above apps or takes focus when shown. Windows shows it only while the desktop or widget is active, using a bundled native observer; macOS/Linux request a desktop window. If Windows desktop detection fails, the widget stays hidden and setup shows a retry message. Native desktop transitions still need a visual platform check.
+
 ## Product direction
 
 **Know which AI coding account to use next, without repeatedly checking every tool.**

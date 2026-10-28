@@ -7,4 +7,6 @@ Thumbs.db
 .vscode/
 .idea/
 output/playwright/
+output/releases/
+native/build/
 .playwright-cli/
