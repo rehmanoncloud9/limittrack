@@ -2,409 +2,124 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LimitTrack Widget</title>
     <link rel="stylesheet" href="typography.css" />
     <link rel="stylesheet" href="appearance.css" />
     <style>
+      /* Desktop widget. Static paint only: no blur, animation or transition, so an idle widget costs nothing.
+         The window is transparent, so the glass look is a translucent fill with a light edge; it does not
+         blur the wallpaper (a page cannot blur what is behind its own window). */
       :root {
-        --accent: rgb(var(--accent-ink)); --green: rgb(var(--success)); --amber: rgb(var(--warning)); --gray: rgb(var(--muted));
-        --panel-bg: rgb(var(--surface) / 0.98); --panel-border: rgb(var(--line));
-        --panel-shadow: 0 4px 14px #0002; --text-primary: rgb(var(--ink)); --text-secondary: rgb(var(--muted));
-        --row-bg: transparent; --row-bg-hover: rgb(var(--subtle));
-        --row-open-bg: transparent; --row-open-bg-hover: rgb(var(--subtle));
-        --divider: rgb(var(--line)); --btn-bg: rgb(var(--subtle)); --btn-bg-hover: rgb(var(--line));
+        --glass-a: 255 255 255 / 0.80; --glass-b: 214 226 252 / 0.70; --glass-edge: 255 255 255 / 0.72;
+        --glass-shadow: 28 52 110 / 0.20; --glass-inset: 255 255 255 / 0.55;
+        --well: 255 255 255 / 0.62; --tile: 255 255 255 / 0.78; --hair: 20 45 100 / 0.10;
+        --wave-a: 120 150 255 / 0.30; --wave-b: 120 150 255 / 0.14;
+        --dot-off: 92 104 125 / 0.45;
       }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-        width: 100%;
-        height: 100%;
-        background: transparent;
-        overflow: hidden;
-        -webkit-user-select: none;
-        user-select: none;
-      }
-
-      body {
-        font-family: var(--font-ui);
-        display: flex;
-        align-items: flex-start;
-        justify-content: center;
-        padding: 8px;
-      }
-
-      #panel {
-        position: relative;
-        width: 100%;
-        max-width: 288px;
-        max-height: 544px;
-        border-radius: 18px;
-        background: var(--panel-bg);
-        border: 1px solid var(--panel-border);
-        box-shadow: var(--panel-shadow);
-        backdrop-filter: blur(24px) saturate(160%);
-        -webkit-backdrop-filter: blur(24px) saturate(160%);
-        overflow: auto;
-        opacity: 0;
-        transform: translateY(-6px) scale(0.98);
-        animation: panel-in 260ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
-      }
-
-      @keyframes panel-in {
-        to {
-          opacity: 1;
-          transform: translateY(0) scale(1);
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --glass-a: 44 52 74 / 0.82; --glass-b: 26 32 50 / 0.76; --glass-edge: 255 255 255 / 0.14;
+          --glass-shadow: 0 0 0 / 0.45; --glass-inset: 255 255 255 / 0.10;
+          --well: 255 255 255 / 0.08; --tile: 255 255 255 / 0.10; --hair: 255 255 255 / 0.10;
+          --wave-a: 90 130 255 / 0.26; --wave-b: 90 130 255 / 0.12;
+          --dot-off: 160 170 188 / 0.50;
         }
       }
-
-      #header {
-        -webkit-app-region: drag;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 11px 10px 11px 14px;
-        position: relative;
-        z-index: 1;
+      :root[data-theme="dark"] {
+        --glass-a: 44 52 74 / 0.82; --glass-b: 26 32 50 / 0.76; --glass-edge: 255 255 255 / 0.14;
+        --glass-shadow: 0 0 0 / 0.45; --glass-inset: 255 255 255 / 0.10;
+        --well: 255 255 255 / 0.08; --tile: 255 255 255 / 0.10; --hair: 255 255 255 / 0.10;
+        --wave-a: 90 130 255 / 0.26; --wave-b: 90 130 255 / 0.12;
+        --dot-off: 160 170 188 / 0.50;
       }
 
-      #header img {
-        width: 16px;
-        height: 16px;
-        border-radius: 4px;
-        -webkit-app-region: no-drag;
-      }
+      * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
+      html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; -webkit-user-select: none; user-select: none; }
+      body { padding: 8px; font-family: var(--font-ui); color: rgb(var(--ink)); line-height: 1.25; }
+      button { border: 0; padding: 0; margin: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+      button:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; }
+      svg { display: block; flex: none; }
+      .drag { -webkit-app-region: drag; }
+      .nodrag { -webkit-app-region: no-drag; }
 
-      #header .title {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--text-primary);
-        letter-spacing: normal;
-        flex: 1;
-        min-width: 0;
-        overflow: hidden;
-        white-space: nowrap;
-        text-overflow: ellipsis;
+      #panel {
+        position: relative; overflow: hidden;
+        border-radius: 22px;
+        background: linear-gradient(150deg, rgb(var(--glass-a)), rgb(var(--glass-b)));
+        border: 1px solid rgb(var(--glass-edge));
+        box-shadow: 0 6px 18px rgb(var(--glass-shadow)), inset 0 1px 0 rgb(var(--glass-inset));
       }
+      #panel[data-layout="standard"] { width: 288px; padding: 14px 14px 16px; }
+      #panel[data-layout="compact"] { width: 184px; padding: 12px; border-radius: 20px; display: flex; align-items: center; gap: 10px; }
+      #panel[data-layout="multi"] { width: 252px; padding: 6px 8px; }
+      #panel[data-layout="message"] { width: 252px; padding: 16px; }
 
-      #header .summary {
-        font-size: 12px;
-        color: var(--text-secondary);
-        font-weight: 400;
-        font-variant-numeric: tabular-nums;
-        white-space: nowrap;
-      }
+      .tile { display: grid; place-items: center; flex: none; border-radius: 14px; background: rgb(var(--tile)); color: rgb(var(--accent-ink)); box-shadow: 0 1px 3px rgb(var(--glass-shadow) / 0.5); }
+      .tile .mono { font-weight: 700; font-size: 15px; }
+      .dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: rgb(var(--dot-off)); }
+      .dot.on { background: rgb(var(--dot-open)); box-shadow: 0 0 0 3px rgb(var(--dot-open) / 0.18); }
+      .num { font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+      .nm { font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+      .muted { color: rgb(var(--muted)); }
 
-      .icon-btn {
-        -webkit-app-region: no-drag;
-        width: 28px;
-        height: 28px;
-        border-radius: 999px;
-        border: none;
-        background: var(--btn-bg);
-        color: var(--text-secondary);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        padding: 0;
-        transition: background 150ms ease, color 150ms ease, transform 150ms ease;
-      }
-      .icon-btn:hover {
-        background: var(--btn-bg-hover);
-        color: var(--text-primary);
-      }
-      .icon-btn:active {
-        transform: scale(0.9);
-      }
-      .icon-btn svg {
-        width: 12px;
-        height: 12px;
-      }
+      /* standard */
+      .hd { display: flex; align-items: center; gap: 9px; height: 28px; }
+      .mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; color: #fff; background: linear-gradient(145deg, #4a8bff, #1f55e0); }
+      .hd .ttl { flex: 1; min-width: 0; font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+      .gear { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: rgb(var(--muted)); }
+      .gear:hover { background: rgb(var(--well)); color: rgb(var(--ink)); }
+      .picker { display: flex; align-items: center; gap: 10px; width: 100%; height: 40px; margin-top: 10px; padding: 0 12px 0 8px; border-radius: 14px; background: rgb(var(--well)); }
+      .picker .tile { width: 26px; height: 26px; border-radius: 8px; box-shadow: none; background: transparent; }
+      .picker .nm { flex: 1; min-width: 0; font-size: 16px; }
+      .picker .chev { color: rgb(var(--muted)); }
+      .stat { position: relative; z-index: 1; display: grid; grid-template-columns: auto 1fr; column-gap: 12px; align-items: center; width: 100%; margin-top: 10px; padding: 4px 2px 0; }
+      .stat .dot { width: 12px; height: 12px; }
+      .stat .num { font-size: 44px; line-height: 1.05; }
+      .stat .sub { grid-column: 1 / -1; margin-top: 1px; font-size: 14.5px; color: rgb(var(--muted)); }
+      .wave { position: absolute; right: -34px; bottom: -48px; width: 190px; height: 120px; border-radius: 50%; pointer-events: none;
+        background: radial-gradient(ellipse at 45% 40%, rgb(var(--wave-a)), rgb(var(--wave-b)) 62%, transparent 63%); }
 
-      #divider {
-        height: 1px;
-        background: var(--divider);
-        margin: 0 12px;
-        position: relative;
-        z-index: 1;
-      }
+      /* compact */
+      #panel[data-layout="compact"] .tile { width: 48px; height: 48px; }
+      .cmeta { flex: 1; min-width: 0; display: block; padding: 2px 0; }
+      .cmeta .nm { display: block; font-size: 15.5px; }
+      .cmeta .row { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+      .cmeta .num { font-size: 30px; line-height: 1.1; }
 
-      #rows {
-        position: relative;
-        z-index: 1;
-        padding: 6px;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
+      /* multi-tool */
+      .items { margin: 0; padding: 0; list-style: none; }
+      .item { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 5px 4px; }
+      .item + .item { border-top: 1px solid rgb(var(--hair)); }
+      .item .tile { width: 30px; height: 30px; border-radius: 9px; box-shadow: none; background: rgb(var(--well)); }
+      .item .open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; align-self: stretch; }
+      .item .nm { flex: 1; min-width: 0; font-size: 15px; font-weight: 550; }
+      .item .num { font-size: 19px; min-width: 1.6ch; text-align: right; }
 
-      .row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 8px 8px;
-        border-radius: 14px;
-        background: var(--row-bg);
-        cursor: pointer;
-        transition: background 160ms ease, transform 160ms ease;
-      }
-      .row:hover {
-        background: var(--row-bg-hover);
-      }
-      .row.is-open {
-        background: var(--row-open-bg);
-      }
-      .row.is-open:hover {
-        background: var(--row-open-bg-hover);
-      }
-
-      .avatar {
-        position: relative;
-        width: 24px;
-        height: 24px;
-        border-radius: 999px;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 11px;
-        font-weight: 600;
-        color: #fff;
-      }
-
-      .status-dot {
-        position: absolute;
-        right: -1px;
-        bottom: -1px;
-        width: 10px;
-        height: 10px;
-        border-radius: 999px;
-        border: 2px solid var(--panel-bg);
-      }
-      .status-dot.open {
-        background: var(--green);
-      }
-      .status-dot.soon {
-        background: var(--amber);
-      }
-      .status-dot.locked {
-        background: var(--gray);
-      }
-      .status-dot.ready { background: var(--accent); }
-      .status-dot.unknown { background: var(--gray); }
-
-      .row-text {
-        flex: 1;
-        min-width: 0;
-      }
-      .row-name {
-        font-size: 14px;
-        font-weight: 600;
-        line-height: 1.4;
-        letter-spacing: normal;
-        color: var(--text-primary);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .row-sub {
-        font-size: 12.5px;
-        font-weight: 400;
-        line-height: 1.45;
-        letter-spacing: normal;
-        color: var(--text-secondary);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        margin-top: 1px;
-      }
-
-      .row-right {
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-
-      .countdown {
-        font-variant-numeric: tabular-nums;
-        font-size: 13px;
-        font-weight: 600;
-        letter-spacing: normal;
-        white-space: nowrap;
-      }
-      .countdown.open {
-        color: var(--green);
-      }
-      .countdown.soon {
-        color: var(--amber);
-      }
-      .countdown.locked {
-        color: var(--text-secondary);
-      }
-
-      .hit-btn {
-        -webkit-app-region: no-drag;
-        border: none;
-        border-radius: 999px;
-        background: var(--btn-bg);
-        color: var(--text-primary);
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 1.35;
-        padding: 8px 10px;
-        cursor: pointer;
-        white-space: nowrap;
-        transition: filter 150ms ease, transform 150ms ease;
-      }
-      .hit-btn:hover {
-        filter: brightness(1.08);
-      }
-      .hit-btn:active {
-        transform: scale(0.94);
-      }
-
-      #footer {
-        position: relative;
-        z-index: 1;
-        padding: 2px 14px 12px;
-      }
-      #footer button {
-        -webkit-app-region: no-drag;
-        width: 100%;
-        border: none;
-        background: transparent;
-        color: var(--accent);
-        font-size: 12.5px;
-        font-weight: 500;
-        padding: 6px 0 0;
-        cursor: pointer;
-        text-align: center;
-      }
-      #footer button:hover {
-        text-decoration: underline;
-      }
-
-      #empty {
-        position: relative;
-        z-index: 1;
-        padding: 22px 16px 20px;
-        text-align: center;
-      }
-      #empty .emoji {
-        font-size: 22px;
-        margin-bottom: 6px;
-      }
-      #empty .msg {
-        font-size: 13px;
-        color: var(--text-secondary);
-        margin-bottom: 10px;
-        line-height: 1.55;
-      }
-      #empty button {
-        -webkit-app-region: no-drag;
-        border: none;
-        border-radius: 999px;
-        background: var(--accent);
-        color: #fff;
-        font-size: 13px;
-        font-weight: 500;
-        padding: 7px 14px;
-        cursor: pointer;
-      }
-
-      #hero {
-        padding: 18px 16px 16px;
-        color: var(--text-primary);
-      }
-      #hero-label {
-        color: var(--text-secondary);
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: normal;
-        text-transform: none;
-      }
-      #hero-value {
-        margin: 8px 0;
-        font-size: 32px;
-        line-height: 1.1;
-        font-weight: 500;
-        letter-spacing: -0.01em;
-        font-variant-numeric: tabular-nums;
-      }
-      #hero-detail, #hero-time {
-        color: var(--text-secondary);
-        font-size: 13px;
-        line-height: 1.5;
-        overflow-wrap: anywhere;
-      }
-      #hero-time { margin-top: 2px; }
-      #save-error { margin: 12px; padding: 10px; border-radius: 12px; background: #fff1f2; color: #9f1239; font-size: 13px; }
-      #undo-change { margin: 4px 14px 12px; border: 0; border-radius: 12px; padding: 9px 12px; color: var(--accent); background: var(--btn-bg); cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; }
-      .row:focus-within { background: var(--row-bg-hover); }
-      .row-detail {
-        flex: 1;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        min-width: 0;
-        border: 0;
-        padding: 0;
-        background: transparent;
-        text-align: left;
-        font: inherit;
-        cursor: pointer;
-      }
-      .row-text { display: block; }
-      .row-name, .row-sub { display: block; }
-      @media (prefers-reduced-motion: reduce) {
-        *, *::before, *::after { animation: none !important; transition: none !important; }
-        #panel { opacity: 1; transform: none; }
-      }
-
-      button:focus-visible, select:focus-visible,
-      [tabindex]:focus-visible {
-        outline: 2px solid var(--accent);
-        outline-offset: 2px;
-      }
+      /* messages */
+      .msg-title { font-size: 15px; font-weight: 600; }
+      .msg-body { margin-top: 3px; font-size: 13px; color: rgb(var(--muted)); }
+      .msg-btn { margin-top: 12px; padding: 7px 14px; border-radius: 999px; background: rgb(var(--accent)); color: #fff; font-size: 13px; font-weight: 500; }
     </style>
   </head>
   <body>
-    <div id="panel">
-      <div id="header">
-        <img src="icon.png" alt="" />
-        <div class="title">LimitTrack</div>
-        <div class="summary" id="summary-text"></div>
-        <button class="icon-btn" id="open-main-btn" title="Configure widget" aria-label="Configure widget">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h7m6 0h3M4 17h3m6 0h7"/><circle cx="14" cy="7" r="3"/><circle cx="10" cy="17" r="3"/></svg>
-        </button>
-        <button class="icon-btn" id="hide-widget-btn" title="Hide widget" aria-label="Hide widget">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18" /><path d="M6 6l12 12" /></svg>
-        </button>
-      </div>
-      <div id="divider"></div>
-      <div id="save-error" role="alert" hidden></div>
-      <section id="hero" aria-label="Reset overview" hidden>
-        <div id="hero-label"></div>
-        <div id="hero-value"></div>
-        <div id="hero-detail"></div>
-        <div id="hero-time"></div>
-      </section>
-      <div id="rows"></div>
-      <div id="footer"></div>
-      <button id="undo-change" hidden>Undo last change</button>
-      <div id="empty" style="display: none"></div>
-    </div>
+    <!-- One small icon sprite; each tool's tile references it with <use>. -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <defs>
+        <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+        <symbol id="i-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/><path d="m14.5 4-5 16"/></symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.8c.7 5 2.5 8.4 9.2 9.2-6.7.8-8.5 4.2-9.2 9.2-.7-5-2.5-8.4-9.2-9.2 6.7-.8 8.5-4.2 9.2-9.2Z"/></symbol>
+        <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1.5"/><rect width="7" height="7" x="14" y="3" rx="1.5"/><rect width="7" height="7" x="14" y="14" rx="1.5"/><rect width="7" height="7" x="3" y="14" rx="1.5"/></symbol>
+        <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.5 2"/></symbol>
+        <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+      </defs>
+    </svg>
+    <main id="panel" class="drag" role="group" aria-label="LimitTrack widget" hidden></main>
     <script src="preferences.js"></script>
     <script src="domain.js"></script>
-    <script src="state-client.js"></script>
     <script src="widget.js"></script>
   </body>
 </html>

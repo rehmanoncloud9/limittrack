@@ -1,5 +1,5 @@
 (function (root) {
-  const defaults = { theme: "system", font: "system", widgetVisible: false, widgetProviderId: null };
+  const defaults = { theme: "system", font: "system", notifications: true, privacy: false, launchAtLogin: false, loginSupported: false, graphics: "auto", lowMemoryHost: false, widgetVisible: false, widgetProviderId: null, widgetLayout: "standard", widgetTools: [], widgetToolCount: 3, widgetAlwaysOnTop: false };
   let current = { ...defaults };
   const listeners = new Set();
   function apply(value) {

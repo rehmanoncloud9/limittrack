@@ -1,26 +1,43 @@
+/* Design tokens shared by the app window and the desktop widget.
+   Colours are space-separated RGB triplets so they can take an alpha: rgb(var(--ink) / 0.5). */
 :root {
   color-scheme: light;
-  --canvas: 247 248 250; --surface: 255 255 255; --subtle: 240 242 245;
-  --ink: 30 34 41; --muted: 99 107 119; --line: 225 228 233;
-  --accent-soft: 237 243 253; --accent-ink: 36 88 175;
-  --success: 33 119 77; --success-soft: 234 247 239;
-  --warning: 155 94 26; --danger: 177 36 60; --danger-soft: 255 239 242;
+  --canvas: 241 245 253; --surface: 255 255 255; --subtle: 238 242 250;
+  --ink: 16 24 40; --muted: 92 104 125; --line: 220 227 240;
+  --accent: 37 99 235; --accent-strong: 29 78 216;
+  --accent-soft: 229 238 255; --accent-ink: 37 91 205;
+  --success: 24 122 62; --success-soft: 228 246 233; --dot-open: 34 176 80;
+  --warning: 160 90 12; --danger: 180 35 60; --danger-soft: 255 238 241;
+  --bg-top: 238 243 255; --bg-bottom: 246 249 255; --glow: 96 140 245;
+  --titlebar: 230 238 255;
+  --shadow-card: 0 1px 2px rgb(20 45 100 / 0.05), 0 10px 28px rgb(20 45 100 / 0.07);
+  --shadow-pop: 0 14px 36px rgb(20 45 100 / 0.2);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --canvas: 24 26 30; --surface: 31 34 39; --subtle: 42 46 52;
-    --ink: 235 238 242; --muted: 166 174 187; --line: 60 66 76;
-    --accent-soft: 33 49 72; --accent-ink: 153 191 249;
-    --success: 116 210 163; --success-soft: 28 56 43;
-    --warning: 235 187 116; --danger: 255 161 177; --danger-soft: 68 32 43;
+    --canvas: 15 18 25; --surface: 25 29 38; --subtle: 36 41 52;
+    --ink: 236 240 247; --muted: 160 170 188; --line: 52 59 73;
+    --accent: 77 134 250; --accent-strong: 56 112 235;
+    --accent-soft: 30 45 75; --accent-ink: 150 190 255;
+    --success: 114 212 160; --success-soft: 25 55 41; --dot-open: 70 200 120;
+    --warning: 235 187 116; --danger: 255 160 176; --danger-soft: 68 32 43;
+    --bg-top: 17 21 31; --bg-bottom: 14 17 24; --glow: 60 100 200;
+    --titlebar: 22 26 35;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 10px 28px rgb(0 0 0 / 0.25);
+    --shadow-pop: 0 14px 36px rgb(0 0 0 / 0.5);
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --canvas: 24 26 30; --surface: 31 34 39; --subtle: 42 46 52;
-  --ink: 235 238 242; --muted: 166 174 187; --line: 60 66 76;
-  --accent-soft: 33 49 72; --accent-ink: 153 191 249;
-  --success: 116 210 163; --success-soft: 28 56 43;
-  --warning: 235 187 116; --danger: 255 161 177; --danger-soft: 68 32 43;
+  --canvas: 15 18 25; --surface: 25 29 38; --subtle: 36 41 52;
+  --ink: 236 240 247; --muted: 160 170 188; --line: 52 59 73;
+  --accent: 77 134 250; --accent-strong: 56 112 235;
+  --accent-soft: 30 45 75; --accent-ink: 150 190 255;
+  --success: 114 212 160; --success-soft: 25 55 41; --dot-open: 70 200 120;
+  --warning: 235 187 116; --danger: 255 160 176; --danger-soft: 68 32 43;
+  --bg-top: 17 21 31; --bg-bottom: 14 17 24; --glow: 60 100 200;
+  --titlebar: 22 26 35;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 10px 28px rgb(0 0 0 / 0.25);
+  --shadow-pop: 0 14px 36px rgb(0 0 0 / 0.5);
 }

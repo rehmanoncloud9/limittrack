@@ -24,7 +24,7 @@ If you juggle multiple email accounts across AI coding tools like **Antigravity*
 - **Multi-tool, multi-account:** track as many email accounts as you want, across as many tools as you want, each with its own reset cycle
 - **Add accounts in context:** add directly inside a tool section with the tool already selected; use "Add & add another" to enter several accounts in succession
 - **Desktop reset overview:** see the next estimated reset alongside a compact account list, with light/dark appearance and reduced-motion support
-- **Tool-specific widget:** open Widgets, choose All tools or one tool, then turn on Show desktop widget. Your choice is remembered across restarts
+- **Desktop widget:** three layouts, your choice of tools, optional always-on-top. Your choices are remembered across restarts
 - **Quick limit logging:** click "Log limit" to start an estimated reset countdown, with undo for accidental changes
 - **Honest status:** distinguish accounts you marked available, elapsed reset timers, active cooldowns, and accounts you have not checked
 - **Search and status filters:** find accounts by tool or email and focus on available, waiting, expected-ready, or unchecked accounts
@@ -32,14 +32,20 @@ If you juggle multiple email accounts across AI coding tools like **Antigravity*
 - **Desktop notifications:** get an alert when recorded reset times pass while the app is running, with catch-up after sleep or restart and persistent deduplication
 - **Appearance settings:** choose System, Light, or Dark in Settings; use native system typography by default or choose bundled Inter. Appearance applies to both windows
 - **Safer local data:** validated imports with a replacement preview, atomic saves, recovery copies, and conflict detection between windows
-- **System tray:** closing the window just minimizes it; LimitTrack keeps tracking behind the scenes
+- **System tray:** closing the window just minimizes it (a one-time notice explains this); LimitTrack keeps tracking behind the scenes
+- **Launch at login:** optionally start quietly in the tray when you sign in, so reset alerts keep working after a restart (installed Windows and macOS apps)
+- **Alert controls:** turn reset alerts off, or send a test alert to confirm your system shows them
+- **Privacy mode:** show partial email addresses (like `ab•••@gmail.com`) in the app, widget, and alerts when sharing your screen
+- **Edit anything:** fix an account's email, give it its own reset cycle, or rename a tool without losing history
+- **First-run guide:** a short walkthrough explains the model, including that default cycles are estimates to match to your plan
+- **Remembers your window:** size and position persist between launches
 - **100% local:** everything is saved to a local file on your machine, nothing is sent anywhere
 
 ## Find your way around
 
 - **Accounts:** add an account inside its tool section. Each row shows its status and one main action; use the More menu for details and additional actions.
-- **Widgets:** choose the tool to display and enable **Show desktop widget**. Drag the widget header to move it. Closing it hides it; enable it here to bring it back. On Windows, the widget appears while the desktop or widget is active and hides when you switch to an app. It never stays above your applications. The widget's Configure button opens this page.
-- **Settings:** change **Theme** and **Font**, or export and restore backups. Choices are saved locally.
+- **Widgets:** turn on **Show desktop widget**, then pick a layout (Compact, Standard or Multi-tool), the tool(s) to show and, for Multi-tool, how many rows. The widget shows how many accounts are available per tool. Drag its header or icon to move it; click the count to open LimitTrack; right-click for layout and options. **Keep on top of other windows** is optional. By default, on Windows, the widget appears while the desktop is active and hides when you switch to an app. Closing it turns it off; enable it here to bring it back.
+- **Settings:** change **Theme** and **Font**, control **Alerts & startup** and **Privacy**, or export and restore backups. Choices are saved locally.
 
 ## Download
 
@@ -65,6 +71,8 @@ npm start
 There's no build step for development; it runs straight from source.
 
 The compiled `app.css` is included. After changing utility classes or design tokens, rebuild it with `npm run build:styles`. This development command downloads a pinned Tailwind CLI; the application itself does not need a styling CDN.
+
+Run `npm test` to execute the unit tests and the jsdom interaction tests.
 
 Reset cycles are user-configured estimates, not verified provider policies. Newly added accounts start as **Not checked**. A timer reaching zero means **Expected ready**, and **Mark available** records your confirmation. LimitTrack does not connect to provider accounts or measure remaining quota. Notifications require the application to be running; operating system settings can suppress them.
 

@@ -104,8 +104,9 @@
     if (Number.isFinite(reset)) return "ready";
     return "unknown";
   }
-  function effectiveTime(account, nowMs) {
-    const status = getStatus(account, nowMs);
+  // Pass an already-computed status to avoid recomputing it when sorting many accounts.
+  function effectiveTime(account, nowMs, knownStatus) {
+    const status = knownStatus || getStatus(account, nowMs);
     if (status === "open") return -2;
     if (status === "ready") return -1;
     if (status === "unknown") return Infinity;
@@ -122,8 +123,101 @@
     if (h) return compact ? `${h}h ${m}m` : `${h}h ${m}m ${s}s`;
     return `${m}m ${s}s`;
   }
+  function cycleToMs(value, unit) {
+    return (Number(value) || 0) * (unit === "hours" ? 3600000 : 86400000);
+  }
+  // An account's own cycle wins; otherwise its tool's; otherwise a 7-day default.
+  function cycleFor(account, providers) {
+    if (account.cycleValue) return { value: account.cycleValue, unit: account.cycleUnit };
+    const provider = providers.find((p) => p.id === account.providerId);
+    return provider ? { value: provider.cycleValue, unit: provider.cycleUnit } : { value: 7, unit: "days" };
+  }
+  // Mutating helpers shared by the app window, bulk actions and the widget.
+  function logLimit(account, providers, nowMs) {
+    const { value, unit } = cycleFor(account, providers);
+    const hitAt = new Date(nowMs).toISOString();
+    const resetAt = new Date(nowMs + cycleToMs(value, unit)).toISOString();
+    account.lastHitAt = hitAt;
+    account.resetAt = resetAt;
+    account.confirmedAvailableAt = null;
+    account.resetSource = "estimate";
+    account.history = [{ hitAt, resetAt }, ...(account.history || [])].slice(0, 8);
+    return account;
+  }
+  function markAvailable(account, nowMs) {
+    account.resetAt = null;
+    account.confirmedAvailableAt = new Date(nowMs).toISOString();
+    return account;
+  }
+  function setReset(account, resetAtIso, source, nowMs) {
+    account.resetAt = resetAtIso;
+    account.resetSource = source === "exact" ? "exact" : "estimate";
+    account.confirmedAvailableAt = null;
+    // An exact reset with no recorded hit still implies a limit was reached.
+    if (!account.lastHitAt) account.lastHitAt = new Date(nowMs).toISOString();
+    return account;
+  }
+  // Validates a <input type="datetime-local"> value for a reset time.
+  function parseResetInput(localValue, nowMs) {
+    if (!localValue) return { error: "Choose a date and time." };
+    const ms = new Date(localValue).getTime();
+    if (!Number.isFinite(ms)) return { error: "That date and time isn't valid." };
+    if (ms <= nowMs) return { error: "Choose a time in the future, or use Mark available." };
+    if (ms - nowMs > 400 * 86400000) return { error: "That is more than a year away. Check the date." };
+    return { iso: new Date(ms).toISOString() };
+  }
+  // "3d 4h", "2h 5m" or "12m" for a span of milliseconds (minute resolution, never below 1m).
+  function formatMinutes(ms) {
+    const minutes = Math.max(1, Math.ceil(ms / 60000));
+    const d = Math.floor(minutes / 1440), h = Math.floor(minutes % 1440 / 60), m = minutes % 60;
+    return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+  }
+  // Minute-level text for places that cannot tick every second (tray tooltip, desktop widget).
+  function formatApprox(account, nowMs) {
+    const status = getStatus(account, nowMs);
+    if (status === "open") return "available";
+    if (status === "ready") return "expected ready";
+    if (status === "unknown") return "not checked";
+    return formatMinutes(Date.parse(account.resetAt) - nowMs);
+  }
+  // One pass over the accounts: per-tool counts used by the desktop widget. "Available" means
+  // exactly what the app means by it (status "open"); the next reset only considers future resets.
+  function summarizeProviders(state, nowMs) {
+    const rows = new Map(state.providers.map((p) => [p.id, { id: p.id, name: p.name, available: 0, ready: 0, tracked: 0, nextResetAt: null }]));
+    for (const account of state.accounts) {
+      const row = rows.get(account.providerId);
+      if (!row) continue;
+      row.tracked++;
+      const status = getStatus(account, nowMs);
+      if (status === "open") row.available++;
+      else if (status === "ready") row.ready++;
+      else if (status === "soon" || status === "locked") {
+        const at = Date.parse(account.resetAt);
+        if (row.nextResetAt === null || at < row.nextResetAt) row.nextResetAt = at;
+      }
+    }
+    return [...rows.values()];
+  }
+  // Folds per-tool rows into one "All tools" row.
+  function combineSummaries(rows) {
+    const total = { id: null, name: "All tools", available: 0, ready: 0, tracked: 0, nextResetAt: null };
+    for (const row of rows) {
+      total.available += row.available; total.ready += row.ready; total.tracked += row.tracked;
+      if (row.nextResetAt !== null && (total.nextResetAt === null || row.nextResetAt < total.nextResetAt)) total.nextResetAt = row.nextResetAt;
+    }
+    return total;
+  }
+  // Keeps the first letters and the domain so work and personal accounts stay distinguishable.
+  function maskEmail(value) {
+    const text = String(value ?? "");
+    const at = text.lastIndexOf("@");
+    if (at < 1) return text.length > 1 ? text[0] + "•••" : "•••";
+    return text.slice(0, Math.min(2, at)) + "•••" + text.slice(at);
+  }
+  function displayEmail(value, privacy) { return privacy ? maskEmail(value) : String(value ?? ""); }
   function dueResets(state, delivered, nowMs) {
     return state.accounts.filter((a) => a.resetAt && Date.parse(a.resetAt) <= nowMs && getStatus(a, nowMs) === "ready" && delivered[a.id] !== a.resetAt);
   }
-  return { STORAGE_KEY, DEFAULT_STATE, clone, normalizeState, mergeState, getStatus, effectiveTime, formatCountdown, dueResets };
+  return { STORAGE_KEY, DEFAULT_STATE, clone, normalizeState, mergeState, getStatus, effectiveTime, formatCountdown, formatApprox, formatMinutes, summarizeProviders, combineSummaries, dueResets,
+    cycleToMs, cycleFor, logLimit, markAvailable, setReset, parseResetInput, maskEmail, displayEmail };
 });

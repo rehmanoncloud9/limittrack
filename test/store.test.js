@@ -54,3 +54,22 @@ test("import recovery copy survives subsequent normal writes", (t) => {
   store.write({ value: "imported" }); store.write({ value: "later" });
   assert.deepEqual(JSON.parse(fs.readFileSync(filename + ".before-import")), { value: "before" });
 });
+
+test("saving unchanged data does not rewrite the file or rotate the backup", (t) => {
+  const filename = temporary(t), store = createStore(filename);
+  store.write({ value: 1 }); store.write({ value: 2 });
+  const before = fs.statSync(filename).mtimeMs, backup = fs.readFileSync(filename + ".bak", "utf8");
+  store.write({ value: 2 });
+  assert.equal(fs.statSync(filename).mtimeMs, before);
+  assert.equal(fs.readFileSync(filename + ".bak", "utf8"), backup, "the backup still holds the previous version");
+});
+
+test("after recovering from a corrupt file, saving the recovered data still repairs the primary file", (t) => {
+  const filename = temporary(t), store = createStore(filename);
+  store.write({ value: 1 }); store.write({ value: 2 });
+  fs.writeFileSync(filename, "{broken");
+  const recovered = createStore(filename);
+  assert.deepEqual(recovered.read(), { value: 1 });
+  recovered.write({ value: 1 }); // identical to the recovered copy, but not to what is on disk
+  assert.deepEqual(JSON.parse(fs.readFileSync(filename, "utf8")), { value: 1 });
+});

@@ -1,367 +1,218 @@
-// The widget shares validation and status rules with the main app.
+// LimitTrack desktop widget.
+//
+// The page is a thin view. The main process owns the account data and the availability rules; it sends
+// this page a few numbers per tool ({ layout, rows: [{ id, name, available, ready, tracked, nextResetAt }] })
+// whenever they change. Nothing here reads, parses or writes accounts, and there is no per-second timer:
+// the only timer is a single timeout aligned to the next minute change of the one countdown that can be
+// on screen (Standard layout, no account available), and it is cancelled while the widget is hidden.
 
-const { STORAGE_KEY, DEFAULT_STATE, getStatus, effectiveTime } = window.LimitTrackDomain;
-const dataClient = window.createLimitTrackClient(window.limittrack);
-let persistenceError = "";
-let selectedProviderId = null;
-const MAX_VISIBLE_ROWS = 3;
+(function () {
+  "use strict";
+  const bridge = window.limittrack;
+  const { formatMinutes } = window.LimitTrackDomain;
+  const panel = document.getElementById("panel");
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const ICONS = [["antigravity", "i-layers"], ["windsurf", "i-code"], ["codex", "i-code"], ["cursor", "i-spark"], ["claude", "i-spark"]];
+  const MARGIN = 16; // the page's 8px padding on each side; the window is the panel plus this
 
-let state = JSON.parse(JSON.stringify(DEFAULT_STATE));
-let renderedRowIds = null; // signature of the last row skeleton we built, to avoid unnecessary rebuilds
-let undoChange = null;
-let undoUntil = 0;
+  let payload = null;
+  let sent = { width: 0, height: 0 };
+  let timer = null;
+  let subtitleEl = null; // the one element the minute timer updates
 
-// ---------- pure helpers (mirrors renderer.js) ----------
+  // ---------- small DOM helpers ----------
 
-function normalizeUnit(unit) {
-  return unit === "hours" ? "hours" : "days";
-}
-
-function cycleToMs(value, unit) {
-  const v = Number(value) || 0;
-  return normalizeUnit(unit) === "hours" ? v * 3600000 : v * 86400000;
-}
-
-function widgetStatusLabel(account, nowMs) {
-  const status = getStatus(account, nowMs);
-  return status === "open" ? "Available" : status === "ready" ? "Expected ready" : status === "unknown" ? "Not checked" : account.resetSource === "exact" ? "Recorded reset" : "Estimated reset";
-}
-
-function formatCountdown(acc, nowMs) {
-  return window.LimitTrackDomain.formatCountdown(acc, nowMs, true);
-}
-
-function providerCycle(providerId) {
-  const p = state.providers.find((p) => p.id === providerId);
-  return p ? { value: p.cycleValue, unit: p.cycleUnit } : { value: 7, unit: "days" };
-}
-
-function accountCycle(acc) {
-  if (acc.cycleValue) return { value: acc.cycleValue, unit: acc.cycleUnit };
-  return providerCycle(acc.providerId);
-}
-
-function escapeHtml(str) {
-  return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
-// Deterministic color per provider, so each tool gets a stable avatar hue.
-function providerHue(providerId) {
-  const known = { codex: 165, claude: 24, antigravity: 220 };
-  if (Object.prototype.hasOwnProperty.call(known, providerId)) return known[providerId];
-  let hash = 0;
-  const str = String(providerId || "");
-  for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) % 360;
-  return hash;
-}
-
-// ---------- storage ----------
-
-async function loadState(preserveFocus = false) {
-  const focusedRow = document.activeElement?.closest(".row");
-  const focusedId = focusedRow?.dataset.id;
-  const focusedAction = document.activeElement?.dataset.role;
-  try {
-    const [nextState, config] = await Promise.all([dataClient.read(), window.limittrack.widgetConfigGet()]);
-    state = nextState;
-    selectedProviderId = state.providers.some((p) => p.id === config.providerId) ? config.providerId : null;
-    persistenceError = "";
-  } catch (error) { persistenceError = error.message; }
-  renderedRowIds = null; renderAll();
-  if (preserveFocus && focusedId) {
-    const row = [...document.querySelectorAll(".row")].find((el) => el.dataset.id === focusedId);
-    const button = focusedAction === "hit" ? row?.querySelector('[data-role="hit"]') : null;
-    (button && !button.hidden ? button : row?.querySelector(".row-detail"))?.focus({ preventScroll: true });
-  }
-}
-
-async function saveState() {
-  try {
-    await dataClient.save(state);
-    await loadState(true);
-    return true;
-  } catch (error) {
-    await loadState(true);
-    persistenceError = "Change was not saved. " + error.message;
-    undoChange = null;
-    renderedRowIds = null; renderAll();
-    return false;
-  }
-}
-
-// ---------- actions ----------
-
-function scopedAccounts() {
-  return selectedProviderId ? state.accounts.filter((a) => a.providerId === selectedProviderId) : state.accounts;
-}
-
-function markHit(id) {
-  const acc = state.accounts.find((a) => a.id === id);
-  if (!acc) return;
-  const before = window.LimitTrackDomain.clone(acc);
-  const { value, unit } = accountCycle(acc);
-  const hitAt = new Date().toISOString();
-  const resetAt = new Date(Date.now() + cycleToMs(value, unit)).toISOString();
-  acc.lastHitAt = hitAt;
-  acc.resetAt = resetAt;
-  acc.confirmedAvailableAt = null;
-  acc.resetSource = "estimate";
-  acc.history = [{ hitAt, resetAt }, ...(acc.history || [])].slice(0, 8);
-  undoChange = { before, after: window.LimitTrackDomain.clone(acc) };
-  undoUntil = Date.now() + 6000;
-  saveState();
-  renderAll();
-}
-
-function markAvailable(id) {
-  const account = state.accounts.find((a) => a.id === id);
-  if (!account) return;
-  const before = window.LimitTrackDomain.clone(account);
-  account.resetAt = null;
-  account.confirmedAvailableAt = new Date().toISOString();
-  undoChange = { before, after: window.LimitTrackDomain.clone(account) };
-  undoUntil = Date.now() + 6000;
-  saveState();
-  renderAll();
-}
-
-function undoLastChange() {
-  if (!undoChange || Date.now() >= undoUntil) return;
-  const index = state.accounts.findIndex((a) => a.id === undoChange.before.id);
-  if (index < 0 || JSON.stringify(state.accounts[index]) !== JSON.stringify(undoChange.after)) {
-    persistenceError = "This account changed again. Undo was not applied.";
-  } else {
-    state.accounts[index] = undoChange.before;
-    saveState();
-  }
-  undoChange = null;
-  renderAll();
-}
-
-// ---------- rendering ----------
-
-function visibleAccounts(nowMs) {
-  // Don't move the item someone is using when a timer changes its status.
-  const rows = document.getElementById("rows");
-  if ((rows.contains(document.activeElement) || rows.matches(":hover")) && renderedRowIds) {
-    const ids = renderedRowIds.split(",");
-    return ids.map((id) => scopedAccounts().find((a) => a.id === id)).filter(Boolean);
-  }
-  return [...scopedAccounts()]
-    .sort((a, b) => {
-      const ea = effectiveTime(a, nowMs);
-      const eb = effectiveTime(b, nowMs);
-      if (ea === -1 && eb === -1) return a.email.localeCompare(b.email);
-      return ea === eb ? a.email.localeCompare(b.email) : ea - eb;
-    })
-    .slice(0, MAX_VISIBLE_ROWS);
-}
-
-function rowSkeleton(acc, provider) {
-  const hue = providerHue(acc.providerId);
-  const initial = (provider ? provider.name : "?").trim().charAt(0).toUpperCase() || "?";
-  const row = document.createElement("div");
-  row.className = "row";
-  row.dataset.id = acc.id;
-  row.innerHTML = `
-    <button class="row-detail" aria-label="View ${escapeHtml(provider ? provider.name : "Account")} — ${escapeHtml(acc.email)}">
-    <div class="avatar" style="background: hsl(${hue} 70% 45%)">
-      ${escapeHtml(initial)}
-      <span class="status-dot" data-role="dot"></span>
-    </div>
-    <div class="row-text">
-      <div class="row-name">${escapeHtml(selectedProviderId ? acc.email : provider ? provider.name : "Unknown")}</div>
-      <div class="row-sub">${escapeHtml(selectedProviderId ? widgetStatusLabel(acc, Date.now()) : acc.email)}</div>
-    </div>
-    </button>
-    <div class="row-right" data-role="right">
-      <button class="hit-btn" data-role="hit">Log limit</button>
-      <span class="countdown" data-role="countdown"></span>
-    </div>
-  `;
-  row.querySelector(".row-detail").addEventListener("click", () => {
-    window.limittrack.widgetOpenMain(acc.id);
-  });
-  row.querySelector('[data-role="hit"]').addEventListener("click", () => {
-    const status = getStatus(state.accounts.find((a) => a.id === acc.id) || acc, Date.now());
-    if (status === "unknown" || status === "ready") markAvailable(acc.id);
-    else markHit(acc.id);
-  });
-  return row;
-}
-
-function updateHero(nowMs) {
-  const hero = document.getElementById("hero");
-  const accounts = scopedAccounts();
-  hero.hidden = accounts.length === 0;
-  if (hero.hidden) return;
-  const next = accounts.filter((a) => Number.isFinite(new Date(a.resetAt).getTime()) && new Date(a.resetAt).getTime() > nowMs)
-    .sort((a, b) => new Date(a.resetAt) - new Date(b.resetAt))[0];
-  const available = accounts.filter((a) => getStatus(a, nowMs) === "open").length;
-  const expected = accounts.filter((a) => getStatus(a, nowMs) === "ready").length;
-  document.getElementById("hero-label").textContent = next ? (next.resetSource === "exact" ? "Next recorded reset" : "Next estimated reset") : "Account status";
-  document.getElementById("hero-value").textContent = next ? formatCountdown(next, nowMs) : available ? `${available} available` : expected ? "Check status" : "Not checked";
-  const provider = next && state.providers.find((p) => p.id === next.providerId);
-  document.getElementById("hero-detail").textContent = next
-    ? selectedProviderId ? next.email : `${provider ? provider.name : "Account"} · ${next.email}`
-    : expected ? `${expected} reset times passed. Check the tool, then confirm.` : available ? "Marked available by you. No active timers." : "Check your tool, then mark an account available.";
-  document.getElementById("hero-time").textContent = next
-    ? new Date(next.resetAt).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit", timeZoneName: "short" })
-    : "";
-}
-
-function renderAll() {
-  const nowMs = Date.now();
-  const accounts = scopedAccounts();
-  const title = document.querySelector("#header .title");
-  title.textContent = state.providers.find((p) => p.id === selectedProviderId)?.name || "LimitTrack";
-  title.title = title.textContent;
-  const rowsEl = document.getElementById("rows");
-  const footerEl = document.getElementById("footer");
-  const emptyEl = document.getElementById("empty");
-  const summaryEl = document.getElementById("summary-text");
-  const errorEl = document.getElementById("save-error");
-  errorEl.hidden = !persistenceError;
-  errorEl.textContent = persistenceError;
-  document.getElementById("undo-change").hidden = !undoChange || nowMs >= undoUntil;
-  updateHero(nowMs);
-
-  if (accounts.length === 0) {
-    rowsEl.style.display = "none";
-    footerEl.style.display = "none";
-    emptyEl.style.display = "block";
-    emptyEl.innerHTML = `
-      <div class="emoji">📭</div>
-      <div class="msg">${selectedProviderId ? `No accounts for ${escapeHtml(state.providers.find((p) => p.id === selectedProviderId)?.name || "this tool")} yet.` : "No accounts tracked yet."}<br />Add one in LimitTrack to see live countdowns here.</div>
-      <button id="empty-open-btn">Open LimitTrack</button>
-    `;
-    document.getElementById("empty-open-btn").addEventListener("click", () => window.limittrack.widgetOpenMain());
-    summaryEl.textContent = "";
-    requestResize();
-    return;
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
   }
 
-  emptyEl.style.display = "none";
-  rowsEl.style.display = "flex";
-
-  const openCount = accounts.filter((a) => getStatus(a, nowMs) === "open").length;
-  summaryEl.textContent = `${openCount} available`;
-
-  const visible = visibleAccounts(nowMs);
-  const signature = visible.map((a) => a.id).join(",");
-
-  if (signature !== renderedRowIds) {
-    rowsEl.innerHTML = "";
-    visible.forEach((acc) => {
-      const provider = state.providers.find((p) => p.id === acc.providerId);
-      rowsEl.appendChild(rowSkeleton(acc, provider));
-    });
-    renderedRowIds = signature;
+  function icon(id, size, className) {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("width", size);
+    svg.setAttribute("height", size);
+    svg.setAttribute("aria-hidden", "true");
+    if (className) svg.setAttribute("class", className);
+    const use = document.createElementNS(SVG_NS, "use");
+    use.setAttribute("href", "#" + id);
+    svg.appendChild(use);
+    return svg;
   }
 
-  const remaining = accounts.length - visible.length;
-  footerEl.style.display = "block";
-  {
-    footerEl.innerHTML = `<button id="more-btn">${remaining > 0 ? `View all ${accounts.length} accounts` : "Open accounts"}</button>`;
-    document.getElementById("more-btn").addEventListener("click", () => window.limittrack.widgetOpenMain());
+  function button(className, action, label) {
+    const node = el("button", className + " nodrag");
+    node.type = "button";
+    node.dataset.act = action;
+    if (label) node.setAttribute("aria-label", label);
+    return node;
   }
 
-  updateTick(nowMs, visible);
-  requestResize();
-}
+  // Known tools get a recognisable glyph; any other tool gets its first letter.
+  function iconId(row) {
+    if (row.id === null) return "i-grid";
+    const key = (row.id + " " + row.name).toLowerCase();
+    const hit = ICONS.find(([name]) => key.includes(name));
+    return hit ? hit[1] : null;
+  }
 
-// Runs every second: only touches text/class of existing nodes so hover
-// states and keyboard focus never get interrupted by countdown updates.
-function updateTick(nowMs, visible) {
-  const list = visible || visibleAccounts(nowMs);
-  list.forEach((acc) => {
-    const row = [...document.querySelectorAll(".row")].find((el) => el.dataset.id === acc.id);
-    if (!row) return;
-    const status = getStatus(acc, nowMs);
-    if (selectedProviderId) row.querySelector(".row-sub").textContent = widgetStatusLabel(acc, nowMs);
-    row.classList.toggle("is-open", status === "open");
+  function tile(row, size) {
+    const node = el("span", "tile drag"); // the tile is a drag handle; the text beside it opens the app
+    const id = iconId(row);
+    if (id) node.appendChild(icon(id, size, "glyph"));
+    else node.appendChild(el("span", "mono", (row.name.trim().charAt(0) || "?").toUpperCase()));
+    return node;
+  }
 
-    const dot = row.querySelector('[data-role="dot"]');
-    if (dot) dot.className = `status-dot ${status}`;
+  function dot(row, extra) { return el("span", "dot" + (row.available > 0 ? " on" : "") + (extra ? " " + extra : "")); }
 
-    const right = row.querySelector('[data-role="right"]');
-    if (right) {
-      const button = right.querySelector('[data-role="hit"]');
-      const countdown = right.querySelector('[data-role="countdown"]');
-      const canAct = status === "open" || status === "ready" || status === "unknown";
-      if (!canAct && document.activeElement === button) row.querySelector(".row-detail").focus();
-      button.hidden = !canAct;
-      button.textContent = status === "open" ? "Log limit" : "Confirm";
-      button.title = status === "open" ? "Estimate a reset using the configured cycle" : "Mark available after checking the tool";
-      countdown.hidden = canAct;
-      countdown.className = `countdown ${status}`;
-      countdown.textContent = formatCountdown(acc, nowMs);
+  // What the small print says: the app's own wording for each state, never invented urgency.
+  function describe(row, nowMs) {
+    if (row.available > 0) return { text: row.available === 1 ? "Available account" : "Available accounts" };
+    if (row.ready > 0) return { text: row.ready + " expected ready" };
+    if (row.nextResetAt !== null) return row.nextResetAt > nowMs ? { text: "Next reset in " + formatMinutes(row.nextResetAt - nowMs), timed: true } : { text: "Expected ready" };
+    return { text: row.tracked === 0 ? "No accounts yet" : "Not checked" };
+  }
+
+  function summaryLabel(row, nowMs) {
+    return row.name + ": " + row.available + " " + (row.available === 1 ? "account" : "accounts") + " available. " + describe(row, nowMs).text + ".";
+  }
+
+  // ---------- layouts ----------
+
+  function standard(row, nowMs) {
+    const header = el("div", "hd drag");
+    const mark = el("span", "mark");
+    mark.appendChild(icon("i-clock", 16));
+    const gear = button("gear", "menu", "Widget options");
+    gear.appendChild(icon("i-gear", 17));
+    header.append(mark, el("span", "ttl", "LimitTrack"), gear);
+
+    const picker = button("picker", "tools", "Tool shown: " + row.name + ". Change tool");
+    picker.setAttribute("aria-haspopup", "menu");
+    picker.append(tile(row, 20), el("span", "nm", row.name), icon("i-chevron", 16, "chev"));
+
+    const stat = button("stat", "open", summaryLabel(row, nowMs) + " Open LimitTrack");
+    subtitleEl = el("span", "sub", describe(row, nowMs).text);
+    stat.append(dot(row), el("span", "num", String(row.available)), subtitleEl);
+
+    return [header, picker, stat, el("span", "wave")];
+  }
+
+  function compact(row, nowMs) {
+    const meta = button("cmeta", "open", summaryLabel(row, nowMs) + " Open LimitTrack");
+    const count = el("span", "row");
+    count.append(dot(row), el("span", "num", String(row.available)));
+    meta.append(el("span", "nm", row.name), count);
+    meta.title = summaryLabel(row, nowMs);
+    return [tile(row, 26), meta];
+  }
+
+  function multi(rows, nowMs) {
+    const list = el("ul", "items");
+    for (const row of rows) {
+      const item = el("li", "item");
+      const open = button("open", "open", summaryLabel(row, nowMs) + " Open LimitTrack");
+      open.title = summaryLabel(row, nowMs);
+      open.append(el("span", "nm", row.name), dot(row), el("span", "num", String(row.available)));
+      item.append(tile(row, 17), open);
+      list.appendChild(item);
     }
-  });
-}
-
-function tick() {
-  const nowMs = Date.now();
-  const accounts = scopedAccounts();
-  updateHero(nowMs);
-  const undoButton = document.getElementById("undo-change");
-  if (undoChange && nowMs >= undoUntil) {
-    undoChange = null;
-    if (document.activeElement === undoButton) document.getElementById("open-main-btn").focus();
-    undoButton.hidden = true;
+    return [list];
   }
-  requestResize();
-  if (accounts.length === 0) return;
-  const openCount = accounts.filter((a) => getStatus(a, nowMs) === "open").length;
-  const summaryEl = document.getElementById("summary-text");
-  if (summaryEl) summaryEl.textContent = `${openCount} available`;
 
-  const visible = visibleAccounts(nowMs);
-  const signature = visible.map((a) => a.id).join(",");
-  if (signature !== renderedRowIds) {
-    renderAll();
-    return;
+  function message(title, body, action, actionLabel) {
+    const nodes = [el("div", "msg-title", title), el("div", "msg-body", body)];
+    if (action) { const btn = button("msg-btn", action); btn.textContent = actionLabel; nodes.push(btn); }
+    return nodes;
   }
-  updateTick(nowMs, visible);
-}
 
-// ---------- window sizing ----------
-// The widget hugs its own content: tell main.js how tall the panel wants to
-// be, and it resizes the (fixed-width) BrowserWindow to match.
+  // ---------- rendering ----------
 
-let resizeRaf = null;
-function requestResize() {
-  if (resizeRaf) cancelAnimationFrame(resizeRaf);
-  resizeRaf = requestAnimationFrame(() => {
-    const panel = document.getElementById("panel");
-    if (!panel || !window.limittrack || !window.limittrack.widgetResize) return;
-    const height = Math.ceil(panel.getBoundingClientRect().height) + 16; // body padding
-    window.limittrack.widgetResize(height);
+  function render() {
+    const nowMs = Date.now();
+    subtitleEl = null;
+    // Until the first summary arrives (a few milliseconds) the panel stays hidden: no "Loading" flash and no size to report.
+    if (!payload) { panel.hidden = true; return; }
+    let layout = payload.layout;
+    let nodes;
+    if (!payload.rows.length) { layout = "message"; nodes = message("No tools yet", "Add a tool and an account in LimitTrack to see counts here.", "open", "Open LimitTrack"); }
+    else if (layout === "multi") nodes = multi(payload.rows, nowMs);
+    else if (layout === "compact") nodes = compact(payload.rows[0], nowMs);
+    else nodes = standard(payload.rows[0], nowMs);
+    panel.dataset.layout = layout;
+    panel.replaceChildren(...nodes);
+    panel.hidden = false;
+    report();
+    schedule();
+  }
+
+  // The window hugs the panel: tell main how big it is (only when that actually changed).
+  function report() {
+    if (panel.hidden) return; // nothing to measure before the first summary
+    const width = Math.ceil(panel.offsetWidth) + MARGIN, height = Math.ceil(panel.offsetHeight) + MARGIN;
+    if (width === sent.width && height === sent.height) return;
+    sent = { width, height };
+    bridge.widgetResize({ width, height });
+  }
+
+  // ---------- the one countdown ----------
+
+  function currentSubtitle(nowMs) {
+    return payload && payload.layout === "standard" && payload.rows.length ? describe(payload.rows[0], nowMs) : null;
+  }
+
+  function refresh() {
+    const state = currentSubtitle(Date.now());
+    if (state && subtitleEl && subtitleEl.textContent !== state.text) subtitleEl.textContent = state.text;
+  }
+
+  // Sleep until the displayed minute value is about to change. Nothing runs when no countdown is showing or the widget is hidden.
+  function schedule() {
+    clearTimeout(timer);
+    timer = null;
+    if (document.hidden) return;
+    const nowMs = Date.now();
+    const state = currentSubtitle(nowMs);
+    if (!state || !state.timed) return;
+    const row = payload.rows[0];
+    const delay = ((row.nextResetAt - nowMs) % 60000) || 60000;
+    timer = setTimeout(() => { refresh(); schedule(); }, delay + 40);
+  }
+
+  // ---------- events ----------
+
+  panel.addEventListener("click", (event) => {
+    const target = event.target.closest("[data-act]");
+    if (!target) return;
+    if (target.dataset.act === "open") bridge.widgetOpenMain();
+    else if (target.dataset.act === "tools") bridge.widgetToolMenu();
+    else if (target.dataset.act === "menu") bridge.widgetContextMenu();
   });
-}
-
-// ---------- init ----------
-
-window.addEventListener("DOMContentLoaded", () => {
-  document.getElementById("open-main-btn").addEventListener("click", () => window.limittrack.widgetOpenSettings());
-  document.getElementById("hide-widget-btn").addEventListener("click", () => window.limittrack.widgetHide());
-  document.getElementById("undo-change").addEventListener("click", undoLastChange);
-  window.LimitTrackPreferences.subscribe((value) => {
-    selectedProviderId = value.widgetProviderId;
-    renderedRowIds = null;
-    renderAll();
-    document.fonts.ready.then(requestResize);
+  // Right-click on any clickable part opens the widget's own menu (drag handles keep the system behaviour).
+  panel.addEventListener("contextmenu", (event) => {
+    if (!event.target.closest(".nodrag")) return;
+    event.preventDefault();
+    bridge.widgetContextMenu();
   });
-  window.LimitTrackPreferences.ready.catch((error) => { persistenceError = "Settings could not be loaded. " + error.message; renderAll(); });
 
-  if (window.limittrack && window.limittrack.onStorageChanged) {
-    window.limittrack.onStorageChanged((key) => {
-      if (key === STORAGE_KEY) loadState();
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) { refresh(); report(); }
+    schedule();
+  });
+  if (document.fonts) {
+    document.fonts.ready.then(report);
+    document.fonts.addEventListener("loadingdone", report);
+  }
+
+  bridge.onWidgetSummary((next) => { payload = next; render(); });
+  bridge.widgetSummaryGet().then((next) => { payload = next; render(); })
+    .catch(() => {
+      payload = null;
+      panel.dataset.layout = "message";
+      panel.replaceChildren(...message("Could not load", "Open LimitTrack to check your accounts.", "open", "Open LimitTrack"));
+      panel.hidden = false;
+      report();
     });
-  }
-
-  loadState();
-  document.fonts.ready.then(requestResize);
-  document.fonts.addEventListener("loadingdone", requestResize);
-  setInterval(tick, 1000);
-});
+})();

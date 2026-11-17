@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LimitTrack</title>
     <link rel="icon" type="image/png" href="icon.png" />
@@ -12,7 +13,57 @@
     <link rel="stylesheet" href="ui.css" />
   </head>
   <body>
-    <div id="app"></div>
+    <!-- One icon sprite for the whole window; the UI references it with <use>. -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <defs>
+        <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+        <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1.5"/><rect width="7" height="7" x="14" y="3" rx="1.5"/><rect width="7" height="7" x="14" y="14" rx="1.5"/><rect width="7" height="7" x="3" y="14" rx="1.5"/></symbol>
+        <symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+        <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.5 2"/></symbol>
+        <symbol id="i-bars" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 20v-6"/><path d="M12 20V5"/><path d="M18 20V10"/></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7.5"/><path d="m21 21-4.3-4.3"/></symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+        <symbol id="i-more" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.5 0 4.9 1 6.7 2.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+      </defs>
+    </svg>
+
+    <div id="app" class="app">
+      <!-- Custom title bar, shown only on Windows (see renderer.js). The system draws the window buttons over its right edge. -->
+      <header id="titlebar" class="titlebar" hidden>
+        <div class="tb-brand"><img src="icon.png" alt="" /><span>LimitTrack</span></div>
+        <button class="tb-menu" data-titlebar-menu="file">File</button>
+        <button class="tb-menu" data-titlebar-menu="edit">Edit</button>
+        <button class="tb-menu" data-titlebar-menu="view">View</button>
+        <button class="tb-menu" data-titlebar-menu="window">Window</button>
+        <button class="tb-menu" data-titlebar-menu="help">Help</button>
+      </header>
+
+      <div class="frame">
+        <aside class="sidebar">
+          <div class="brand">
+            <span class="brand-mark"><svg class="ic" width="24" height="24" aria-hidden="true"><use href="#i-clock"/></svg></span>
+            <div><div class="brand-name">LimitTrack</div><div class="brand-tag">Your tools, at a glance</div></div>
+          </div>
+          <nav class="nav" aria-label="Main navigation">
+            <button class="nav-item" data-action="navigate" data-id="accounts"><svg class="ic" width="22" height="22" aria-hidden="true"><use href="#i-layers"/></svg><span>Accounts</span></button>
+            <button class="nav-item" data-action="navigate" data-id="widgets"><svg class="ic" width="22" height="22" aria-hidden="true"><use href="#i-grid"/></svg><span>Widgets</span></button>
+            <button class="nav-item" data-action="navigate" data-id="settings"><svg class="ic" width="22" height="22" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></button>
+          </nav>
+          <div class="next-card" id="next-card" role="status" aria-label="Next reset">
+            <div class="next-ic"><svg class="ic" width="20" height="20" aria-hidden="true"><use href="#i-refresh"/></svg></div>
+            <div class="next-text"><div class="next-label">Next reset</div><div class="next-time" id="next-time">No active timers</div><div class="next-tool" id="next-tool"></div></div>
+          </div>
+        </aside>
+        <main id="content" class="content" tabindex="-1"></main>
+      </div>
+
+      <div id="popover-root"></div>
+      <div id="toast-root" aria-live="polite" role="status"></div>
+      <div id="modal-root"></div>
+    </div>
+
     <script src="preferences.js"></script>
     <script src="domain.js"></script>
     <script src="state-client.js"></script>

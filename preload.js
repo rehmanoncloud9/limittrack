@@ -1,9 +1,11 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("limittrack", {
+  platform: process.platform,
   stateGet: () => ipcRenderer.invoke("state:get"),
   stateCommit: (base, next, options) => ipcRenderer.invoke("state:commit", base, next, options),
-  trayUpdate: (text) => ipcRenderer.send("tray:update", text),
+  appInfo: () => ipcRenderer.invoke("app:info"),
+  notificationsTest: () => ipcRenderer.invoke("notifications:test"),
   // Fired whenever any window (main or widget) writes to the store, so the
   // other window can reload and stay in sync.
   onStorageChanged: (callback) => {
@@ -12,7 +14,16 @@ contextBridge.exposeInMainWorld("limittrack", {
     return () => ipcRenderer.removeListener("storage:changed", listener);
   },
   // Floating widget window controls (no-ops if called from the main window).
-  widgetResize: (height) => ipcRenderer.send("widget:resize", height),
+  widgetResize: (size) => ipcRenderer.send("widget:resize", size),
+  // The widget receives a small pre-computed summary (counts per tool) instead of the account list.
+  widgetSummaryGet: () => ipcRenderer.invoke("widget:summary-get"),
+  onWidgetSummary: (callback) => {
+    const listener = (event, summary) => callback(summary);
+    ipcRenderer.on("widget:summary", listener);
+    return () => ipcRenderer.removeListener("widget:summary", listener);
+  },
+  widgetToolMenu: () => ipcRenderer.send("widget:tool-menu"),
+  widgetContextMenu: () => ipcRenderer.send("widget:context-menu"),
   widgetHide: () => ipcRenderer.send("widget:hide"),
   widgetConfigGet: () => ipcRenderer.invoke("widget:config-get"),
   widgetConfigSet: (config) => ipcRenderer.invoke("widget:config-set", config),
@@ -25,6 +36,14 @@ contextBridge.exposeInMainWorld("limittrack", {
     return () => ipcRenderer.removeListener("preferences:changed", listener);
   },
   widgetOpenSettings: () => ipcRenderer.send("widget:open-settings"),
+  // Custom title bar (Windows): ask the main process to pop up a native menu under a title-bar button.
+  menuOpen: (name, x, y) => ipcRenderer.send("menu:open", name, x, y),
+  onMenuAction: (callback) => {
+    const listener = (event, name) => callback(name);
+    ipcRenderer.on("menu:action", listener);
+    return () => ipcRenderer.removeListener("menu:action", listener);
+  },
+  relaunch: () => ipcRenderer.invoke("app:relaunch"),
   onWidgetConfigure: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("widgets:configure", listener);

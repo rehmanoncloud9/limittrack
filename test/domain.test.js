@@ -89,3 +89,67 @@ test("notifications reconcile expired timers once, including after restart", () 
   state.accounts[0].confirmedAvailableAt = iso(-1);
   assert.deepEqual(D.dueResets(state, delivered, now), []);
 });
+
+test("logLimit uses the account cycle, then the tool cycle, then seven days, and records capped history", () => {
+  const state = D.normalizeState({ providers: [{ id: "tool", name: "Tool", cycleValue: 5, cycleUnit: "hours" }], accounts: [
+    { id: "a", providerId: "tool", email: "a@example.com" },
+    { id: "b", providerId: "tool", email: "b@example.com", cycleValue: 2, cycleUnit: "days" },
+  ] });
+  const [a, b] = state.accounts;
+  D.logLimit(a, state.providers, now);
+  assert.equal(a.resetAt, iso(5 * 3600000));
+  assert.equal(a.resetSource, "estimate");
+  assert.equal(a.confirmedAvailableAt, null);
+  D.logLimit(b, state.providers, now);
+  assert.equal(b.resetAt, iso(2 * 86400000));
+  assert.deepEqual(D.cycleFor({ providerId: "gone" }, state.providers), { value: 7, unit: "days" });
+  for (let i = 0; i < 12; i++) D.logLimit(a, state.providers, now + i);
+  assert.equal(a.history.length, 8);
+  assert.doesNotThrow(() => D.normalizeState(state));
+});
+
+test("a new limit invalidates an older availability confirmation", () => {
+  const account = fixture().accounts[0];
+  D.markAvailable(account, now - 5000);
+  assert.equal(D.getStatus(account, now), "open");
+  D.logLimit(account, fixture().providers, now);
+  assert.equal(D.getStatus(account, now + 1000), "locked");
+});
+
+test("setReset records exact times, clears confirmation, and implies a limit was reached", () => {
+  const account = fixture().accounts[0];
+  D.markAvailable(account, now - 1000);
+  D.setReset(account, iso(3600000 * 3), "exact", now);
+  assert.equal(account.resetSource, "exact");
+  assert.equal(account.confirmedAvailableAt, null);
+  assert.equal(account.lastHitAt, iso(0));
+  assert.equal(D.getStatus(account, now), "locked");
+});
+
+test("parseResetInput rejects empty, invalid, past, and absurdly distant times", () => {
+  assert.match(D.parseResetInput("", now).error, /Choose a date/);
+  assert.match(D.parseResetInput("not a date", now).error, /isn't valid/);
+  assert.match(D.parseResetInput(iso(-60000), now).error, /future/);
+  assert.match(D.parseResetInput(iso(500 * 86400000), now).error, /year away/);
+  const ok = D.parseResetInput(iso(3600000), now);
+  assert.equal(ok.iso, iso(3600000));
+});
+
+test("maskEmail keeps accounts distinguishable without exposing the address", () => {
+  assert.equal(D.maskEmail("abdul@gmail.com"), "ab•••@gmail.com");
+  assert.equal(D.maskEmail("a@x.io"), "a•••@x.io");
+  assert.equal(D.maskEmail("no-at-sign"), "n•••");
+  assert.equal(D.displayEmail("abdul@gmail.com", false), "abdul@gmail.com");
+  assert.equal(D.displayEmail("abdul@gmail.com", true), "ab•••@gmail.com");
+  assert.equal(D.maskEmail(undefined), "•••");
+});
+
+test("formatApprox is minute-level and never claims precision it lacks", () => {
+  const account = fixture().accounts[0];
+  account.lastHitAt = iso(-1000); account.resetAt = iso(90 * 60000);
+  assert.equal(D.formatApprox(account, now), "1h 30m");
+  account.resetAt = iso(20000);
+  assert.equal(D.formatApprox(account, now), "1m");
+  account.resetAt = iso(2 * 86400000 + 3 * 3600000);
+  assert.equal(D.formatApprox(account, now), "2d 3h");
+});

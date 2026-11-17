@@ -6,6 +6,8 @@ Implementation update: account creation now lives inside each tool section, with
 
 The widget also supports a persisted All tools / single-tool selection, applied to its account list, availability count, next reset, and overflow count. A removed tool falls back to All tools, while an empty tool shows its own empty state.
 
+November 16 update (v1.3.0): see `AUDIT_AND_PLAN.md`. Added launch at login, alert on/off and test, privacy mode, account and tool editing, first-run guidance, recorded limit events, remembered window bounds, hardened windows, and shared domain helpers with UI interaction tests. Privacy mode and notification controls from the P1 list below are now partly delivered (global on/off and email masking; per-account alerts and quiet hours remain planned).
+
 The broader roadmap below remains a design target. Multiple limit windows, account label editing, pinning, privacy mode, configurable notification controls, and alternative widget sizes are still planned. Verification includes Node tests and disposable browser fixtures; actual native notification delivery and packaged cross-platform behavior require a separate platform check.
 
 October 28 usability update: Accounts, Widgets, and Settings navigation replaces the crowded single screen. Widgets has a tool selector and visibility switch; its Configure action opens setup. Settings persists System/Light/Dark themes and System/Inter fonts across both windows. Native system typography is the default. Rows show one primary action; More and Details reveal secondary actions and timestamps. Backup controls live in Settings.
